@@ -60,7 +60,9 @@
         <div>
           <div class="flex items-center gap-2.5">
             <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">Grok & Regexp Debugger</h1>
-            <span class="px-2 py-0.5 text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full">v1.1</span>
+            <span class="px-2 py-0.5 text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full"
+                  x-text="appConfig.version">
+            </span>
           </div>
           <p class="text-xs text-slate-400 mt-0.5">ECS-compliant log parsing engine with real-time pattern diagnostics</p>
         </div>
@@ -447,7 +449,6 @@
       </div>
     </div>
   </div>
-
   <script>
     const DEFAULT_PATTERN = '';
     const DEFAULT_LOGS = '';
@@ -470,6 +471,13 @@
 
     function grokApp() {
       return {
+        appConfig: { 
+          version: 'Loading...', 
+          environment: 'development', 
+          features: {
+            enable_auto_generate: true
+          } 
+        },
         pattern: localStorage.getItem('grok_pattern') || DEFAULT_PATTERN,
         customPatterns: localStorage.getItem('grok_custom') || '',
         logText: localStorage.getItem('grok_log_text') || DEFAULT_LOGS,
@@ -537,9 +545,22 @@
         },
 
         initApp() {
+          this.fetchConfig();
           this.checkSyntaxNotice();
           this.analyzeFormats();
           this.triggerMatch();
+        },
+
+        async fetchConfig() {
+          try {
+            const res = await fetch('/api/config');
+            if (res.ok) {
+              const data = await res.json();
+              this.appConfig = { ...this.appConfig, ...data };
+            }
+          } catch (e) {
+            console.warn('Unable to load server config, using defaults.', e);
+          }
         },
 
         setNamingFormat(format) {
@@ -570,10 +591,10 @@
             const isBracket = /^(\[[a-zA-Z0-9_\-]+\])+$/.test(f);
             
             if (this.namingFormat === 'dot' && isBracket) {
-               detectedInconsistent.push(f);
+              detectedInconsistent.push(f);
             }
             if (this.namingFormat === 'bracket' && isDot) {
-               detectedInconsistent.push(f);
+              detectedInconsistent.push(f);
             }
           });
           
