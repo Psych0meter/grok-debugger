@@ -61,7 +61,7 @@
         <div>
           <div class="flex items-center gap-2.5">
             <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">Grok & Regexp Debugger</h1>
-            <span class="px-2 py-0.5 text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full">v2.3</span>
+            <span class="px-2 py-0.5 text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full">v1.0</span>
           </div>
           <p class="text-xs text-slate-400 mt-0.5">ECS-compliant log parsing engine with real-time pattern diagnostics</p>
         </div>
@@ -115,8 +115,11 @@
                 <option value="dot">Dot syntax (client.ip)</option>
                 <option value="bracket">ECS Bracket ([client][ip])</option>
               </select>
-              <button @click="autoGenerate()" class="text-[11px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-1 rounded-md transition font-medium">
-                Auto-Infer
+              <button @click="autoGenerate()" class="inline-flex items-center gap-1.5 text-[11px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-1 rounded-md transition font-medium">
+                <span>Auto-Generate</span>
+                <span class="text-[9px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1 py-0.5 rounded leading-none">
+                  Beta
+                </span>
               </button>
             </div>
           </div>
