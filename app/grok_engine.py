@@ -2,10 +2,10 @@ import re
 from typing import Dict, Any, List, Tuple
 from pygrok import Grok
 
+
 class GrokDebuggerEngine:
     def __init__(self):
         self.grok_field_re = re.compile(r'%\{([A-Z0-9_]+):([^}:]+)(:[a-zA-Z0-9_]+)?\}')
-        # Support standard and bracketed named groups like (?<[syslog][sequence]>\d+)
         self.regex_group_re = re.compile(r'\(\?(?:<|P<)([^>]+)>')
 
         self.valid_dot_field = re.compile(r'^[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)*$')
@@ -142,7 +142,6 @@ class GrokDebuggerEngine:
 
                 spans_list.sort(key=lambda x: x["span"][0])
 
-                # Ordered field list based on occurrence position in text
                 ordered_matches = [
                     {"key": item["field"], "value": matches_dict[item["field"]]}
                     for item in spans_list if item["field"] in matches_dict
@@ -185,84 +184,88 @@ class GrokDebuggerEngine:
 
     def pregenerate_pattern(self, text: str, format_mode: str = "dot") -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-
-        def format_field(dot_name: str) -> str:
-            if format_mode == "bracket":
-                parts = dot_name.split(".")
-                return "".join(f"[{p}]" for p in parts)
-            return dot_name
-
         if not lines:
-            return f"%{{GREEDYDATA:{format_field('message')}}}"
+            return "%{GREEDYDATA:message}"
 
-        line_tails = list(lines)
+        def format_field(name: str, index: int) -> str:
+            field_name = name if name else f"field{index}"
+            if format_mode == "bracket":
+                parts = field_name.strip('[]').split('.')
+                return "".join(f"[{p}]" for p in parts)
+            return field_name
+
+        def escape_literal(s: str) -> str:
+            """Escapes regex special characters in literal log string parts."""
+            return re.sub(r'([\\^$\.|?*+()\[\]{}])', r'\\\1', s)
+
+        def detect_grok_type(val: str) -> str:
+            if not val:
+                return "DATA"
+            
+            cleaned = val.strip('\'"<>()[]{}')
+
+            # Generic IP (Handles both IPv4 and IPv6)
+            if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', cleaned) or (':' in cleaned and re.match(r'^[0-9a-fA-F:]+$', cleaned)):
+                return "IP"
+
+            # Integer
+            if cleaned.isdigit():
+                return "INT"
+
+            # Floating Point / Duration (e.g. 0.010)
+            if re.match(r'^\d+\.\d+$', cleaned):
+                return "NUMBER"
+
+            return "NOTSPACE"
+
+        def tokenize_line(line: str) -> List[Tuple[str, bool]]:
+            """
+            Splits line into structural tokens and variable candidates.
+            Preserves numbers, floats, IPs, key=value prefixes, and structural punctuation.
+            """
+            pattern = r'([a-zA-Z0-9_\-]+=)|([0-9a-fA-F:]+:[0-9a-fA-F:]+)|(\d+\.\d+)|\d+|([a-zA-Z0-9_\-]+)|([^\w\s])|(\s+)'
+            tokens = []
+            for match in re.finditer(pattern, line):
+                val = match.group(0)
+                is_cand = not re.match(r'^[\s,:<>\(\)\[\]\'"=]+$', val)
+                tokens.append((val, is_cand))
+            return tokens
+
+        sample_lines = lines[:min(5, len(lines))]
+        tokenized_samples = [tokenize_line(line) for line in sample_lines]
+
+        base_tokens = tokenized_samples[0]
+        field_counter = 0
         pattern_parts = []
 
-        def consume_spaces():
-            nonlocal line_tails, pattern_parts
-            if not line_tails:
-                return
-            min_spaces = min(len(l) - len(l.lstrip(' ')) for l in line_tails)
-            if min_spaces > 0:
-                pattern_parts.append(" " * min_spaces)
-                line_tails = [l[min_spaces:] for l in line_tails]
+        for idx, (base_val, is_cand) in enumerate(base_tokens):
+            if not is_cand:
+                pattern_parts.append(escape_literal(base_val))
+                continue
 
-        pri_m = [re.match(r'^<(\d+)>(.*)', l) for l in line_tails]
-        if all(m for m in pri_m):
-            pattern_parts.append(f"<%{{INT:{format_field('syslog.pri')}}}>")
-            line_tails = [m.group(2) for m in pri_m]
+            values_at_pos = []
+            for sample in tokenized_samples:
+                if idx < len(sample):
+                    values_at_pos.append(sample[idx][0])
 
-        consume_spaces()
+            kv_match = re.match(r'^([a-zA-Z0-9_\-]+)=', base_val)
+            is_variable = len(set(values_at_pos)) > 1
 
-        sys_ts = [re.match(r'^([A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2})(.*)', l) for l in line_tails]
-        iso_ts = [re.match(r'^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)(.*)', l) for l in line_tails]
-        http_ts = [re.match(r'^\[(\d{2}/[A-Za-z]{3}/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})\](.*)', l) for l in line_tails]
+            if kv_match:
+                key_name = kv_match.group(1)
+                field_counter += 1
+                field_ref = format_field(key_name, field_counter)
+                pattern_parts.append(f"{escape_literal(key_name)}=")
+            elif is_variable:
+                field_counter += 1
+                field_ref = format_field("", field_counter)
+                grok_type = detect_grok_type(base_val)
+                pattern_parts.append(f"%{{{grok_type}:{field_ref}}}")
+            else:
+                pattern_parts.append(escape_literal(base_val))
 
-        if all(m for m in sys_ts):
-            pattern_parts.append(f"%{{SYSLOGTIMESTAMP:{format_field('timestamp')}}}")
-            line_tails = [m.group(2) for m in sys_ts]
-        elif all(m for m in iso_ts):
-            pattern_parts.append(f"%{{TIMESTAMP_ISO8601:{format_field('timestamp')}}}")
-            line_tails = [m.group(2) for m in iso_ts]
-        elif all(m for m in http_ts):
-            pattern_parts.append(f"[%{{HTTPDATE:{format_field('timestamp')}}}]")
-            line_tails = [m.group(2) for m in http_ts]
-
-        consume_spaces()
-
-        level_m = [re.match(r'^(DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL)(.*)', l, re.IGNORECASE) for l in line_tails]
-        if all(m for m in level_m):
-            pattern_parts.append(f"%{{LOGLEVEL:{format_field('log.level')}}}")
-            line_tails = [m.group(2) for m in level_m]
-
-        consume_spaces()
-
-        ip_m = [re.match(r'^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(.*)', l) for l in line_tails]
-        host_m = [re.match(r'^([a-zA-Z0-9_\-\.]+)(.*)', l) for l in line_tails]
-
-        if all(m for m in ip_m):
-            pattern_parts.append(f"%{{IP:{format_field('client.ip')}}}")
-            line_tails = [m.group(2) for m in ip_m]
-        elif all(m for m in host_m):
-            pattern_parts.append(f"%{{SYSLOGHOST:{format_field('host.hostname')}}}")
-            line_tails = [m.group(2) for m in host_m]
-
-        consume_spaces()
-
-        seq_m = [re.match(r'^(\d+)(.*)', l) for l in line_tails]
-        if all(m for m in seq_m):
-            pattern_parts.append(f"%{{INT:{format_field('syslog.sequence')}}}")
-            line_tails = [m.group(2) for m in seq_m]
-
-        consume_spaces()
-
-        proc_m = [re.match(r'^([a-zA-Z0-9_\-\.]+):(.*)', l) for l in line_tails]
-        if all(m for m in proc_m):
-            pattern_parts.append(f"%{{WORD:{format_field('process.name')}}}:")
-            line_tails = [m.group(2) for m in proc_m]
-
-        consume_spaces()
-
-        pattern_parts.append(f"%{{GREEDYDATA:{format_field('message')}}}")
-
-        return "".join(pattern_parts)
+        pattern = "".join(pattern_parts)
+        
+        # Clean up any trailing space duplicates
+        pattern = re.sub(r' +', ' ', pattern)
+        return pattern
