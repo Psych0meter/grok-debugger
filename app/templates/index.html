@@ -42,7 +42,6 @@
       tab-size: 2;
     }
 
-    /* Results container height transition */
     .results-container {
       transition: max-height 0.3s ease;
     }
@@ -169,7 +168,6 @@
                 style="overflow-wrap: normal; word-break: normal;"
                 placeholder="CUSTOM_PATTERN [\w-]+"></textarea>
             </div>
-            <!-- Resize handle indicator -->
             <div class="h-1 w-full bg-slate-800/50 hover:bg-slate-700/50 cursor-ns-resize shrink-0"></div>
           </div>
         </div>
@@ -212,6 +210,22 @@
               </button>
             </div>
 
+            <!-- Cards vs JSON Toggle -->
+            <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shrink-0">
+              <button @click="viewMode = 'cards'; saveState()"
+                      :class="viewMode === 'cards' ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                      class="px-2 py-1 rounded-md transition text-[11px]">
+                Cards
+              </button>
+              <button @click="viewMode = 'json'; saveState()"
+                      :class="viewMode === 'json' ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                      class="px-2 py-1 rounded-md transition text-[11px] flex items-center gap-1">
+                <span>{ }</span>
+                <span>JSON</span>
+              </button>
+            </div>
+
+            <!-- Order vs A-Z Toggle -->
             <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shrink-0">
               <button @click="sortMode = 'order'; saveState()"
                       :class="sortMode === 'order' ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
@@ -267,13 +281,26 @@
                   <span class="text-slate-600">•</span>
                   <span class="text-slate-400 text-[11px] truncate max-w-[200px] sm:max-w-xs" x-text="res.line_text"></span>
                 </div>
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shrink-0"
-                      :class="res.matched ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/80' : 'bg-rose-950 text-rose-400 border border-rose-800/80'"
-                      x-text="res.matched ? 'Match' : 'No Match'"></span>
+
+                <div class="flex items-center gap-2 shrink-0">
+                  <template x-if="res.matched">
+                    <button @click="res.showJson = !res.showJson"
+                            class="px-2 py-0.5 rounded text-[10px] font-mono border transition flex items-center gap-1"
+                            :class="res.showJson || viewMode === 'json' ? 'bg-indigo-950 text-indigo-300 border-indigo-700/80' : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'">
+                      <span>{ }</span>
+                      <span>JSON</span>
+                    </button>
+                  </template>
+
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shrink-0"
+                        :class="res.matched ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/80' : 'bg-rose-950 text-rose-400 border border-rose-800/80'"
+                        x-text="res.matched ? 'Match' : 'No Match'"></span>
+                </div>
               </div>
 
               <template x-if="res.matched">
                 <div class="space-y-3">
+                  <!-- Segment Highlighting -->
                   <div class="font-mono text-xs break-all leading-relaxed p-3 bg-slate-950 rounded-lg border border-slate-800 overflow-x-auto custom-scrollbar">
                     <template x-for="(seg, idx) in res.segments" :key="idx">
                       <span>
@@ -289,16 +316,31 @@
                     </template>
                   </div>
 
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    <template x-for="item in getDisplayFields(res)" :key="item.key">
-                      <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs font-mono min-w-0">
-                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 mr-2 whitespace-nowrap"
-                              :class="getFieldColor(item.key).badge"
-                              x-text="item.key"></span>
-                        <span class="text-slate-200 truncate font-sans text-right min-w-0" :title="item.value" x-text="item.value"></span>
-                      </div>
-                    </template>
-                  </div>
+                  <!-- Cards View -->
+                  <template x-if="!res.showJson && viewMode !== 'json'">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      <template x-for="item in getDisplayFields(res)" :key="item.key">
+                        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs font-mono min-w-0">
+                          <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 mr-2 whitespace-nowrap"
+                                :class="getFieldColor(item.key).badge"
+                                x-text="item.key"></span>
+                          <span class="text-slate-200 truncate font-sans text-right min-w-0" :title="item.value" x-text="item.value"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Dynamic JSON View (Respects Order vs A-Z mode) -->
+                  <template x-if="res.showJson || viewMode === 'json'">
+                    <div class="relative group pt-1">
+                      <button @click="copyJson(res.json_data, $event)"
+                              class="absolute top-3 right-3 px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 text-[10px] font-mono rounded border border-slate-800 transition opacity-80 group-hover:opacity-100 flex items-center gap-1 shadow-sm">
+                        <svg class="w-3 h-3 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 012-2v-8a2 2 0 01-2-2h-8a2 2 0 01-2 2v8a2 2 0 012 2z"/></svg>
+                        <span>Copy JSON</span>
+                      </button>
+                      <pre class="bg-slate-950 border border-slate-800 rounded-lg p-3.5 font-mono text-xs text-indigo-200 overflow-x-auto leading-relaxed custom-scrollbar"><code x-text="formatJson(res.json_data)"></code></pre>
+                    </div>
+                  </template>
                 </div>
               </template>
 
@@ -352,7 +394,7 @@
       </div>
     </div>
 
-    <!-- Sample Log Lines - Full width -->
+    <!-- Sample Log Lines -->
     <div class="mt-6">
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm space-y-2">
         <div class="flex items-center justify-between">
@@ -382,7 +424,6 @@
               :class="logLineClasses"
               placeholder="Paste target log lines here..."></textarea>
           </div>
-          <!-- Resize handle indicator -->
           <div class="h-1 w-full bg-slate-800/50 hover:bg-slate-700/50 cursor-ns-resize shrink-0"></div>
         </div>
       </div>
@@ -393,7 +434,6 @@
     const DEFAULT_PATTERN = '';
     const DEFAULT_LOGS = '';
     
-    // Expanded color palette
     const PALETTE = [
       { bg: 'bg-indigo-500/20', text: 'text-indigo-300', border: 'border-indigo-500/30', badge: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60' },
       { bg: 'bg-emerald-500/20', text: 'text-emerald-300', border: 'border-emerald-500/30', badge: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' },
@@ -417,6 +457,7 @@
         logText: localStorage.getItem('grok_log_text') || DEFAULT_LOGS,
         namingFormat: localStorage.getItem('grok_naming_format') || 'bracket',
         sortMode: localStorage.getItem('grok_sort_mode') || 'order',
+        viewMode: localStorage.getItem('grok_view_mode') || 'cards',
         showUnmatchedOnly: localStorage.getItem('grok_unmatched_only') === 'true',
         searchQuery: '',
         liveMode: true,
@@ -481,6 +522,33 @@
           this.triggerMatch();
         },
 
+        sortObjectKeys(obj) {
+          if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+            return obj;
+          }
+          return Object.keys(obj)
+            .sort((a, b) => a.localeCompare(b))
+            .reduce((acc, key) => {
+              acc[key] = this.sortObjectKeys(obj[key]);
+              return acc;
+            }, {});
+        },
+
+        formatJson(obj) {
+          if (!obj) return '{}';
+          const target = this.sortMode === 'alpha' ? this.sortObjectKeys(obj) : obj;
+          return JSON.stringify(target, null, 2);
+        },
+
+        async copyJson(obj, evt) {
+          const text = this.formatJson(obj);
+          await navigator.clipboard.writeText(text);
+          const btn = evt.currentTarget;
+          const orig = btn.innerHTML;
+          btn.innerHTML = `<span class="text-emerald-400">Copied!</span>`;
+          setTimeout(() => btn.innerHTML = orig, 1500);
+        },
+
         syncResultsHeight() {
           this.$nextTick(() => {
             const customContainer = document.getElementById('customPatternsContainer');
@@ -519,6 +587,7 @@
           this.logText = DEFAULT_LOGS;
           this.namingFormat = 'bracket';
           this.sortMode = 'order';
+          this.viewMode = 'cards';
           this.showUnmatchedOnly = false;
           this.searchQuery = '';
           this.results = [];
@@ -590,6 +659,7 @@
           localStorage.setItem('grok_log_text', this.logText);
           localStorage.setItem('grok_naming_format', this.namingFormat);
           localStorage.setItem('grok_sort_mode', this.sortMode);
+          localStorage.setItem('grok_view_mode', this.viewMode);
           localStorage.setItem('grok_unmatched_only', String(this.showUnmatchedOnly));
         },
 
@@ -625,7 +695,7 @@
             });
             const data = await res.json();
             if (data.success) {
-              this.results = data.results || [];
+              this.results = (data.results || []).map(r => ({ ...r, showJson: false }));
               this.fieldColorMap = {};
               this.$nextTick(() => {
                 this.syncResultsHeight();

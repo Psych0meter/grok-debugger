@@ -68,6 +68,21 @@ class GrokDebuggerEngine:
 
         return sanitized_pattern, sanitized_custom, mapping
 
+    def unflatten_dict(self, flat_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Converts flat dot/bracket notation dictionary keys into nested dictionary structures."""
+        result = {}
+        for key, value in flat_dict.items():
+            parts = [p for p in re.split(r'[\[\]\.]+', key) if p]
+            if not parts:
+                continue
+            curr = result
+            for part in parts[:-1]:
+                if part not in curr or not isinstance(curr[part], dict):
+                    curr[part] = {}
+                curr = curr[part]
+            curr[parts[-1]] = value
+        return result
+
     def find_partial_match(self, pattern_str: str, custom_patterns: Dict[str, str], line: str) -> Dict[str, Any]:
         """Progressively tests pattern tokens to find the longest matching prefix when a full match fails."""
         tokens = re.split(r'(%\{[^{}]+\}|\(\?<[^>]+>.*?\))', pattern_str)
@@ -160,13 +175,23 @@ class GrokDebuggerEngine:
                 if curr < len(line):
                     segments.append({"text": line[curr:], "field": None})
 
+                # Construct ordered flat dictionary using log token appearance order
+                ordered_flat_dict = {}
+                for item in spans_list:
+                    f_key = item["field"]
+                    if f_key in matches_dict and f_key not in ordered_flat_dict:
+                        ordered_flat_dict[f_key] = matches_dict[f_key]
+
+                json_nested = self.unflatten_dict(ordered_flat_dict)
+
                 results.append({
                     "line_number": line_idx + 1,
                     "matched": True,
                     "line_text": line,
                     "segments": segments,
                     "matches": matches_dict,
-                    "ordered_matches": ordered_matches
+                    "ordered_matches": ordered_matches,
+                    "json_data": json_nested
                 })
             else:
                 partial_info = self.find_partial_match(pattern_str, custom_patterns, line)
@@ -177,7 +202,8 @@ class GrokDebuggerEngine:
                     "segments": [{"text": line, "field": None}],
                     "matches": {},
                     "ordered_matches": [],
-                    "partial_match": partial_info
+                    "partial_match": partial_info,
+                    "json_data": {}
                 })
 
         return results
@@ -195,7 +221,6 @@ class GrokDebuggerEngine:
             return field_name
 
         def escape_literal(s: str) -> str:
-            """Escapes regex special characters in literal log string parts."""
             return re.sub(r'([\\^$\.|?*+()\[\]{}])', r'\\\1', s)
 
         def detect_grok_type(val: str) -> str:
@@ -204,15 +229,12 @@ class GrokDebuggerEngine:
             
             cleaned = val.strip('\'"<>()[]{}')
 
-            # Generic IP (Handles both IPv4 and IPv6)
             if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', cleaned) or (':' in cleaned and re.match(r'^[0-9a-fA-F:]+$', cleaned)):
                 return "IP"
 
-            # Integer
             if cleaned.isdigit():
                 return "INT"
 
-            # Floating Point / Duration (e.g. 0.010)
             if re.match(r'^\d+\.\d+$', cleaned):
                 return "NUMBER"
 
@@ -265,7 +287,5 @@ class GrokDebuggerEngine:
                 pattern_parts.append(escape_literal(base_val))
 
         pattern = "".join(pattern_parts)
-        
-        # Clean up any trailing space duplicates
         pattern = re.sub(r' +', ' ', pattern)
         return pattern
