@@ -17,12 +17,19 @@
         <h1 class="text-xl sm:text-2xl font-bold text-indigo-400">Grok & Regexp Debugger</h1>
         <p class="text-xs text-slate-400">Interactive log parsing engine with ECS & partial-match diagnostics</p>
       </div>
-      <div class="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4">
+      <div class="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-3 flex-wrap">
+        <!-- Reset All Button -->
+        <button @click="resetAll()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-rose-300 hover:text-rose-200 rounded font-semibold text-xs transition flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          Reset All
+        </button>
+
         <label class="flex items-center cursor-pointer text-sm gap-2 select-none">
           <input type="checkbox" x-model="liveMode" class="sr-only peer">
           <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 relative"></div>
           <span class="text-xs sm:text-sm">Live Match</span>
         </label>
+        
         <button @click="triggerMatch()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded font-semibold text-xs sm:text-sm transition shadow-lg shadow-indigo-600/20">
           Check Pattern
         </button>
@@ -50,8 +57,9 @@
             </div>
           </div>
 
-          <textarea x-model="pattern" @input="onInputChange()" rows="4" 
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+          <textarea id="area_pattern" x-model="pattern" @input="onInputChange()" 
+            :style="heights.area_pattern ? 'height: ' + heights.area_pattern + 'px' : ''"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-y min-h-[90px]"
             placeholder="<%{INT:[syslog][pri]}>%{SYSLOGTIMESTAMP:[timestamp]}..."></textarea>
             
           <!-- Dynamic Inline Syntax Notice -->
@@ -73,22 +81,57 @@
 
         <div>
           <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300 mb-1">Custom Sub-Patterns</label>
-          <textarea x-model="customPatterns" @input="onInputChange()" rows="3" 
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+          <textarea id="area_custom" x-model="customPatterns" @input="onInputChange()" 
+            :style="heights.area_custom ? 'height: ' + heights.area_custom + 'px' : ''"
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-y min-h-[70px]"
             placeholder="STATUS_WORD [\w-]*"></textarea>
         </div>
 
+        <!-- Single Classic Textarea with Integrated Line Numbers -->
         <div>
           <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300 mb-1">Sample Log Lines</label>
-          <textarea x-model="logText" @input="onInputChange()" rows="10" 
-            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-            placeholder="Paste log lines here..."></textarea>
+          <div class="relative bg-slate-800 border border-slate-700 rounded-lg overflow-hidden flex items-stretch">
+            <!-- Line Number Gutter Column -->
+            <div id="log_gutter" aria-hidden="true" class="w-12 shrink-0 bg-slate-900/90 border-r border-slate-700/80 py-3 px-2 text-right font-mono text-xs text-slate-500 select-none overflow-hidden leading-relaxed">
+              <template x-for="n in lineCount" :key="n">
+                <div x-text="n"></div>
+              </template>
+            </div>
+            
+            <!-- Standard Classic Textarea -->
+            <textarea id="area_logs"
+                x-model="logText"
+                @input="onLogInput()"
+                @scroll="syncScroll()"
+                :style="heights.area_logs ? 'height: ' + heights.area_logs + 'px' : ''"
+                class="w-full bg-slate-800 py-3 px-3 font-mono text-xs sm:text-sm text-slate-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none resize-y min-h-[160px] leading-relaxed border-0 whitespace-pre overflow-x-auto"
+                style="overflow-wrap: normal; word-break: normal;"
+                placeholder="Paste log lines here...">
+            </textarea>
+          </div>
         </div>
       </div>
 
       <!-- Results Column -->
       <div class="lg:col-span-7 space-y-4">
-        <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300">Match Results</label>
+        <div class="flex items-center justify-between">
+          <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300">Match Results</label>
+          
+          <!-- Field Order Mode Toggle -->
+          <div class="flex items-center bg-slate-800 border border-slate-700 rounded-md p-0.5 text-xs">
+            <span class="text-[11px] text-slate-400 px-2 font-medium">Fields Display:</span>
+            <button @click="sortMode = 'order'; saveState()" 
+                    :class="sortMode === 'order' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                    class="px-2 py-0.5 rounded transition text-[11px]">
+              Original Order
+            </button>
+            <button @click="sortMode = 'alpha'; saveState()" 
+                    :class="sortMode === 'alpha' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                    class="px-2 py-0.5 rounded transition text-[11px]">
+              Alphabetical (A-Z)
+            </button>
+          </div>
+        </div>
 
         <template x-if="errorMessage">
           <div class="p-4 bg-red-950/60 border border-red-500/50 text-red-200 rounded-lg text-xs sm:text-sm font-mono" x-text="errorMessage"></div>
@@ -131,19 +174,19 @@
 
                   <!-- Key/Value Grid -->
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800/80">
-                    <template x-for="(val, key) in res.matches" :key="key">
+                    <template x-for="item in getDisplayFields(res)" :key="item.key">
                       <div class="flex items-center text-xs font-mono justify-between p-2 rounded bg-slate-950/80 border border-slate-800/60 overflow-hidden">
                         <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 mr-2" 
-                              :class="getFieldColor(key).badge" 
-                              x-text="key"></span>
-                        <span class="text-slate-200 break-all truncate" :title="val" x-text="val"></span>
+                              :class="getFieldColor(item.key).badge" 
+                              x-text="item.key"></span>
+                        <span class="text-slate-200 break-all truncate" :title="item.value" x-text="item.value"></span>
                       </div>
                     </template>
                   </div>
                 </div>
               </template>
 
-              <!-- Partial Match Diagnostics (Grokconstructor style) -->
+              <!-- Partial Match Diagnostics -->
               <template x-if="!res.matched">
                 <div class="space-y-3">
                   <div class="text-xs text-rose-300 font-semibold flex items-center gap-1.5">
@@ -198,6 +241,14 @@
   </div>
 
   <script>
+    const DEFAULT_PATTERN = '<%{INT:[syslog][pri]}>%{SYSLOGTIMESTAMP:[timestamp]} %{SYSLOGHOST:[host][hostname]} (?<[syslog][test]>\\d+) %{WORD:[process][name]}: %{GREEDYDATA:[message]}';
+    const DEFAULT_LOGS = [
+      '<46>Aug  4 13:45:09 SW-ESCHNELSON-S01-02 00179 mgr:  SME SSH from 172.25.10.124 - MANAGER Mode',
+      '<46>Aug  5 11:04:38 SW-MARKEI-MARIEN-E03-LT-01 00077 ports:  port 14 is now off-line',
+      '<46>Aug  5 11:03:52 SW-CLAURIVE-A-E01-STK 00435 ports:  ST2-CMDR: port 1/19 is Blocked by AAA',
+      '<46>Aug  5 10:59:55 SW-REDGRAND-E03-ONE-01 03363 auth:  User \'manager\' logged out of SSH session from 172.25.10.124'
+    ].join('\n');
+
     const PALETTE = [
       { bg: 'bg-indigo-500/20', text: 'text-indigo-300', border: 'border-indigo-500/40', badge: 'bg-indigo-950 text-indigo-300 border-indigo-700/60' },
       { bg: 'bg-emerald-500/20', text: 'text-emerald-300', border: 'border-emerald-500/40', badge: 'bg-emerald-950 text-emerald-300 border-emerald-700/60' },
@@ -209,20 +260,16 @@
       { bg: 'bg-rose-500/20', text: 'text-rose-300', border: 'border-rose-500/40', badge: 'bg-rose-950 text-rose-300 border-rose-700/60' },
       { bg: 'bg-teal-500/20', text: 'text-teal-300', border: 'border-teal-500/40', badge: 'bg-teal-950 text-teal-300 border-teal-700/60' },
       { bg: 'bg-sky-500/20', text: 'text-sky-300', border: 'border-sky-500/40', badge: 'bg-sky-950 text-sky-300 border-sky-700/60' },
-      { bg: 'bg-lime-500/20', text: 'text-lime-300', border: 'border-lime-500/40', badge: 'bg-lime-950 text-lime-300 border-lime-700/60' },
-      { bg: 'bg-fuchsia-500/20', text: 'text-fuchsia-300', border: 'border-fuchsia-500/40', badge: 'bg-fuchsia-950 text-fuchsia-300 border-fuchsia-700/60' },
-      { bg: 'bg-violet-500/20', text: 'text-violet-300', border: 'border-violet-500/40', badge: 'bg-violet-950 text-violet-300 border-violet-700/60' },
-      { bg: 'bg-yellow-500/20', text: 'text-yellow-300', border: 'border-yellow-500/40', badge: 'bg-yellow-950 text-yellow-300 border-yellow-700/60' },
-      { bg: 'bg-blue-500/20', text: 'text-blue-300', border: 'border-blue-500/40', badge: 'bg-blue-950 text-blue-300 border-blue-700/60' },
-      { bg: 'bg-red-500/20', text: 'text-red-300', border: 'border-red-500/40', badge: 'bg-red-950 text-red-300 border-red-700/60' },
     ];
 
     function grokApp() {
       return {
-        pattern: localStorage.getItem('grok_pattern') || '<%{INT:[syslog][pri]}>%{SYSLOGTIMESTAMP:[timestamp]} %{SYSLOGHOST:[host][hostname]} (?<[syslog][test]>\\d+) %{WORD:[process][name]}: %{GREEDYDATA:[message]}',
+        pattern: localStorage.getItem('grok_pattern') || DEFAULT_PATTERN,
         customPatterns: localStorage.getItem('grok_custom') || '',
-        logText: localStorage.getItem('grok_logs') || '<46>Aug  4 13:45:09 SW-ESCHNELSON-S01-02 00179 mgr:  SME SSH from 172.25.10.124 - MANAGER Mode\n<46>Aug  5 11:04:38 SW-MARKEI-MARIEN-E03-LT-01 00077 ports:  port 14 is now off-line\n<46>Aug  5 11:03:52 SW-CLAURIVE-A-E01-STK 00435 ports:  ST2-CMDR: port 1/19 is Blocked by AAA\n<46>Aug  5 10:59:55 SW-REDGRAND-E03-ONE-01 03363 auth:  User \'manager\' logged out of SSH session from 172.25.10.124',
+        logText: localStorage.getItem('grok_log_text') || DEFAULT_LOGS,
         namingFormat: localStorage.getItem('grok_naming_format') || 'bracket',
+        sortMode: localStorage.getItem('grok_sort_mode') || 'order',
+        heights: JSON.parse(localStorage.getItem('grok_heights') || '{}'),
         liveMode: true,
         results: [],
         errorMessage: '',
@@ -231,9 +278,56 @@
         rawGroupToReplace: null,
         debounceTimer: null,
 
+        get lineCount() {
+          if (!this.logText) return 1;
+          return this.logText.split('\n').length;
+        },
+
         initApp() {
           this.checkSyntaxNotice();
           this.triggerMatch();
+          this.attachResizeObserver();
+        },
+
+        attachResizeObserver() {
+          const ids = ['area_pattern', 'area_custom', 'area_logs'];
+          ids.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && window.ResizeObserver) {
+              const ro = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                  this.heights[id] = Math.round(entry.contentRect.height);
+                  this.saveState();
+                }
+              });
+              ro.observe(el);
+            }
+          });
+        },
+
+        syncScroll() {
+          const ta = document.getElementById('area_logs');
+          const gutter = document.getElementById('log_gutter');
+          if (ta && gutter) {
+            gutter.scrollTop = ta.scrollTop;
+          }
+        },
+
+        resetAll() {
+          localStorage.clear();
+          this.pattern = DEFAULT_PATTERN;
+          this.customPatterns = '';
+          this.logText = DEFAULT_LOGS;
+          this.namingFormat = 'bracket';
+          this.sortMode = 'order';
+          this.heights = {};
+          
+          ['area_pattern', 'area_custom', 'area_logs'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.height = '';
+          });
+
+          this.onInputChange();
         },
 
         getFieldColor(fieldName) {
@@ -246,8 +340,19 @@
           return PALETTE[index];
         },
 
+        getDisplayFields(res) {
+          if (!res || !res.matches) return [];
+
+          if (this.sortMode === 'order' && res.ordered_matches && res.ordered_matches.length > 0) {
+            return res.ordered_matches;
+          }
+
+          return Object.keys(res.matches)
+            .sort()
+            .map(k => ({ key: k, value: res.matches[k] }));
+        },
+
         checkSyntaxNotice() {
-          // Dynamically find any (?<[field_name]>regex) or (?P<[field_name]>regex) group
           const match = this.pattern.match(/\(\?(?:<|P<)([^>]+)>(.*?)\)/);
           if (match) {
             const rawGroup = match[0];
@@ -257,7 +362,6 @@
             this.rawGroupToReplace = rawGroup;
             this.rawMatchText = rawGroup;
 
-            // Pick standard Grok pattern dynamically based on the inner regex
             let grokPattern = 'GREEDYDATA';
             if (innerRegex === '\\d+' || innerRegex === '[0-9]+') {
               grokPattern = 'INT';
@@ -283,8 +387,15 @@
         saveState() {
           localStorage.setItem('grok_pattern', this.pattern);
           localStorage.setItem('grok_custom', this.customPatterns);
-          localStorage.setItem('grok_logs', this.logText);
+          localStorage.setItem('grok_log_text', this.logText);
           localStorage.setItem('grok_naming_format', this.namingFormat);
+          localStorage.setItem('grok_sort_mode', this.sortMode);
+          localStorage.setItem('grok_heights', JSON.stringify(this.heights));
+        },
+
+        onLogInput() {
+          this.saveState();
+          this.onInputChange();
         },
 
         onInputChange() {

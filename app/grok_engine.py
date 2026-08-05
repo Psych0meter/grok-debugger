@@ -5,7 +5,7 @@ from pygrok import Grok
 class GrokDebuggerEngine:
     def __init__(self):
         self.grok_field_re = re.compile(r'%\{([A-Z0-9_]+):([^}:]+)(:[a-zA-Z0-9_]+)?\}')
-        # Regex to support (?<field_name>...) and (?P<field_name>...), including bracketed notation like (?<[syslog][sequence]>)
+        # Support standard and bracketed named groups like (?<[syslog][sequence]>\d+)
         self.regex_group_re = re.compile(r'\(\?(?:<|P<)([^>]+)>')
 
         self.valid_dot_field = re.compile(r'^[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)*$')
@@ -142,6 +142,12 @@ class GrokDebuggerEngine:
 
                 spans_list.sort(key=lambda x: x["span"][0])
 
+                # Ordered field list based on occurrence position in text
+                ordered_matches = [
+                    {"key": item["field"], "value": matches_dict[item["field"]]}
+                    for item in spans_list if item["field"] in matches_dict
+                ]
+
                 segments = []
                 curr = 0
                 for item in spans_list:
@@ -160,7 +166,8 @@ class GrokDebuggerEngine:
                     "matched": True,
                     "line_text": line,
                     "segments": segments,
-                    "matches": matches_dict
+                    "matches": matches_dict,
+                    "ordered_matches": ordered_matches
                 })
             else:
                 partial_info = self.find_partial_match(pattern_str, custom_patterns, line)
@@ -170,6 +177,7 @@ class GrokDebuggerEngine:
                     "line_text": line,
                     "segments": [{"text": line, "field": None}],
                     "matches": {},
+                    "ordered_matches": [],
                     "partial_match": partial_info
                 })
 
