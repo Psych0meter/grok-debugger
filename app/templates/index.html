@@ -114,23 +114,62 @@
 
       <!-- Results Column -->
       <div class="lg:col-span-7 space-y-4">
-        <div class="flex items-center justify-between">
-          <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300">Match Results</label>
+        
+        <!-- Results Controls Header -->
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           
-          <!-- Field Order Mode Toggle -->
-          <div class="flex items-center bg-slate-800 border border-slate-700 rounded-md p-0.5 text-xs">
-            <span class="text-[11px] text-slate-400 px-2 font-medium">Fields Display:</span>
-            <button @click="sortMode = 'order'; saveState()" 
-                    :class="sortMode === 'order' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
-                    class="px-2 py-0.5 rounded transition text-[11px]">
-              Original Order
-            </button>
-            <button @click="sortMode = 'alpha'; saveState()" 
-                    :class="sortMode === 'alpha' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
-                    class="px-2 py-0.5 rounded transition text-[11px]">
-              Alphabetical (A-Z)
-            </button>
+          <!-- Match Statistics & Unmatched Toggle -->
+          <div class="flex items-center gap-3 flex-wrap">
+            <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300">Match Results</label>
+            
+            <template x-if="results.length > 0">
+              <div class="flex items-center gap-1.5 text-xs font-mono bg-slate-800/80 border border-slate-700 px-2.5 py-1 rounded-md">
+                <span class="text-slate-400">Matched:</span>
+                <span class="font-bold text-emerald-400" x-text="matchedCount"></span>
+                <span class="text-slate-500">/</span>
+                <span class="font-bold text-slate-200" x-text="results.length"></span>
+                
+                <!-- Toggle Filter for Unmatched Lines -->
+                <button @click="showUnmatchedOnly = !showUnmatchedOnly; saveState()" 
+                        :class="showUnmatchedOnly ? 'bg-rose-950 text-rose-300 border-rose-800' : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'"
+                        class="ml-2 px-2 py-0.5 rounded text-[11px] font-semibold border transition">
+                  <span x-text="showUnmatchedOnly ? 'Showing Unmatched Only' : 'Show Unmatched'"></span>
+                </button>
+              </div>
+            </template>
           </div>
+          
+          <!-- Search Filter & Field Sorting Controls -->
+          <div class="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+            <!-- Search Filter Bar -->
+            <div class="relative flex-1 sm:w-48">
+              <input type="text" 
+                     x-model="searchQuery" 
+                     placeholder="Filter results..." 
+                     class="w-full bg-slate-800 border border-slate-700 text-xs text-slate-200 placeholder-slate-500 rounded px-2.5 py-1 focus:outline-none focus:border-indigo-500 pl-7">
+              <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+              </svg>
+              <button x-show="searchQuery" @click="searchQuery = ''" class="absolute right-2 top-1.5 text-slate-500 hover:text-slate-300 text-xs">
+                ✕
+              </button>
+            </div>
+
+            <!-- Field Order Mode Toggle -->
+            <div class="flex items-center bg-slate-800 border border-slate-700 rounded-md p-0.5 text-xs shrink-0">
+              <button @click="sortMode = 'order'; saveState()" 
+                      :class="sortMode === 'order' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                      class="px-2 py-0.5 rounded transition text-[11px]">
+                Original Order
+              </button>
+              <button @click="sortMode = 'alpha'; saveState()" 
+                      :class="sortMode === 'alpha' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
+                      class="px-2 py-0.5 rounded transition text-[11px]">
+                A-Z
+              </button>
+            </div>
+          </div>
+
         </div>
 
         <template x-if="errorMessage">
@@ -142,7 +181,14 @@
             <p class="text-slate-500 text-sm py-4 text-center">No matches run yet. Enter pattern and log text above.</p>
           </template>
 
-          <template x-for="res in results" :key="res.line_number">
+          <template x-if="results.length > 0 && filteredResults.length === 0">
+            <div class="text-center py-6 space-y-1">
+              <p class="text-slate-400 text-sm font-medium">No results match your active filters.</p>
+              <p class="text-slate-500 text-xs" x-text="showUnmatchedOnly ? 'All lines matched successfully!' : 'Try adjusting your search query.'"></p>
+            </div>
+          </template>
+
+          <template x-for="res in filteredResults" :key="res.line_number">
             <div class="p-3 sm:p-4 rounded-lg border transition-all" 
                  :class="res.matched ? 'border-slate-700 bg-slate-900/80' : 'border-rose-900/50 bg-rose-950/10'">
               
@@ -269,6 +315,8 @@
         logText: localStorage.getItem('grok_log_text') || DEFAULT_LOGS,
         namingFormat: localStorage.getItem('grok_naming_format') || 'bracket',
         sortMode: localStorage.getItem('grok_sort_mode') || 'order',
+        showUnmatchedOnly: localStorage.getItem('grok_unmatched_only') === 'true',
+        searchQuery: '',
         heights: JSON.parse(localStorage.getItem('grok_heights') || '{}'),
         liveMode: true,
         results: [],
@@ -281,6 +329,31 @@
         get lineCount() {
           if (!this.logText) return 1;
           return this.logText.split('\n').length;
+        },
+
+        get matchedCount() {
+          return this.results.filter(r => r.matched).length;
+        },
+
+        get filteredResults() {
+          let list = this.results;
+
+          if (this.showUnmatchedOnly) {
+            list = list.filter(r => !r.matched);
+          }
+
+          if (this.searchQuery.trim()) {
+            const q = this.searchQuery.toLowerCase();
+            list = list.filter(r => {
+              const lineMatch = r.line_text && r.line_text.toLowerCase().includes(q);
+              const fieldMatch = r.matches && Object.entries(r.matches).some(([k, v]) => 
+                k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q)
+              );
+              return lineMatch || fieldMatch;
+            });
+          }
+
+          return list;
         },
 
         initApp() {
@@ -320,6 +393,8 @@
           this.logText = DEFAULT_LOGS;
           this.namingFormat = 'bracket';
           this.sortMode = 'order';
+          this.showUnmatchedOnly = false;
+          this.searchQuery = '';
           this.heights = {};
           
           ['area_pattern', 'area_custom', 'area_logs'].forEach(id => {
@@ -390,6 +465,7 @@
           localStorage.setItem('grok_log_text', this.logText);
           localStorage.setItem('grok_naming_format', this.namingFormat);
           localStorage.setItem('grok_sort_mode', this.sortMode);
+          localStorage.setItem('grok_unmatched_only', this.showUnmatchedOnly);
           localStorage.setItem('grok_heights', JSON.stringify(this.heights));
         },
 
