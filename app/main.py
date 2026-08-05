@@ -14,10 +14,10 @@ class DebugRequest(BaseModel):
     pattern: str
     custom_patterns: Optional[str] = ""
     log_text: str
+    naming_format: Optional[str] = "dot"  # "dot" or "bracket"
 
 @app.get("/")
 async def render_index(request: Request):
-    # Updated to pass request as a keyword argument
     return templates.TemplateResponse(request=request, name="index.html")
 
 @app.post("/api/match")
@@ -30,5 +30,5 @@ async def match_grok(data: DebugRequest):
 
 @app.post("/api/generate")
 async def generate_pattern(data: DebugRequest):
-    guessed_pattern = engine.pregenerate_pattern(data.log_text)
+    guessed_pattern = engine.pregenerate_pattern(data.log_text, data.naming_format or "dot")
     return {"success": True, "generated_pattern": guessed_pattern}

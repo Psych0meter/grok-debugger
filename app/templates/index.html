@@ -7,90 +7,188 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased">
 
-  <div class="max-w-7xl mx-auto p-6" x-data="grokApp()" x-init="initApp()">
-    <header class="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
+  <div class="max-w-[1800px] w-full mx-auto p-4 sm:p-6 lg:p-8" x-data="grokApp()" x-init="initApp()">
+    
+    <!-- Top Bar -->
+    <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-800">
       <div>
-        <h1 class="text-2xl font-bold text-indigo-400">Grok & Regexp Debugger</h1>
-        <p class="text-xs text-slate-400">Modern log parsing engine with ECS support</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-indigo-400">Grok & Regexp Debugger</h1>
+        <p class="text-xs text-slate-400">Interactive log parsing engine with ECS & partial-match diagnostics</p>
       </div>
-      <div class="flex items-center gap-4">
-        <label class="flex items-center cursor-pointer text-sm gap-2">
+      <div class="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4">
+        <label class="flex items-center cursor-pointer text-sm gap-2 select-none">
           <input type="checkbox" x-model="liveMode" class="sr-only peer">
           <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 relative"></div>
-          <span>Live Match</span>
+          <span class="text-xs sm:text-sm">Live Match</span>
         </label>
-        <button @click="triggerMatch()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded font-semibold text-sm transition">
+        <button @click="triggerMatch()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded font-semibold text-xs sm:text-sm transition shadow-lg shadow-indigo-600/20">
           Check Pattern
         </button>
       </div>
     </header>
 
-    <!-- Main Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Layout Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
       
       <!-- Inputs Column -->
-      <div class="space-y-4">
-        <!-- Main Pattern -->
+      <div class="lg:col-span-5 space-y-4">
         <div>
-          <div class="flex justify-between items-center mb-1">
-            <label class="text-xs uppercase tracking-wider font-semibold text-slate-300">GROK Pattern</label>
-            <button @click="autoGenerate()" class="text-xs text-indigo-400 hover:underline">Pre-generate from log</button>
+          <div class="flex justify-between items-center mb-1 gap-2 flex-wrap">
+            <label class="text-xs uppercase tracking-wider font-semibold text-slate-300">GROK / Regex Pattern</label>
+            
+            <div class="flex items-center gap-2">
+              <select x-model="namingFormat" @change="saveState()" 
+                      class="bg-slate-800 border border-slate-700 text-[11px] text-slate-300 rounded px-2 py-0.5 focus:outline-none focus:border-indigo-500">
+                <option value="dot">Dot format (client.ip)</option>
+                <option value="bracket">ECS Bracket ([client][ip])</option>
+              </select>
+              <button @click="autoGenerate()" class="text-xs text-indigo-400 hover:text-indigo-300 hover:underline font-medium">
+                Pre-generate
+              </button>
+            </div>
           </div>
-          <textarea x-model="pattern" @input="onInputChange()" rows="3" 
-            class="w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-sm focus:border-indigo-500 focus:outline-none"
-            placeholder="INTERFACE %{WORD}(\.%{WORD:[observer][ingress][vlan][id]})?"></textarea>
+
+          <textarea x-model="pattern" @input="onInputChange()" rows="4" 
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+            placeholder="<%{INT:[syslog][pri]}>%{SYSLOGTIMESTAMP:[timestamp]}..."></textarea>
+            
+          <!-- Dynamic Inline Syntax Notice -->
+          <template x-if="suggestedFix">
+            <div class="mt-2 p-2.5 bg-amber-950/40 border border-amber-600/50 rounded-md text-xs text-amber-200 flex items-start gap-2">
+              <svg class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <div class="space-y-1">
+                <p><strong>Syntax Notice:</strong> Bracket notation inside raw capture group <code class="text-amber-300 font-mono" x-text="rawMatchText"></code> is processed safely, but standard Grok syntax is recommended:</p>
+                <div class="flex items-center gap-2">
+                  <code class="bg-slate-900 px-2 py-0.5 rounded text-amber-300 border border-amber-800 font-mono" x-text="suggestedFix"></code>
+                  <button @click="applyAutoFix()" class="text-[11px] bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold px-2 py-0.5 rounded">
+                    Auto-fix
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
 
-        <!-- Custom Sub-Patterns -->
         <div>
           <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300 mb-1">Custom Sub-Patterns</label>
-          <textarea x-model="customPatterns" @input="onInputChange()" rows="5" 
-            class="w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-sm focus:border-indigo-500 focus:outline-none"
-            placeholder="STATUS_WORD [\w-]*&#10;DOVECOT_PROTO (?<[network][protocol]>pop3|imap)"></textarea>
+          <textarea x-model="customPatterns" @input="onInputChange()" rows="3" 
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+            placeholder="STATUS_WORD [\w-]*"></textarea>
         </div>
 
-        <!-- Sample Logs -->
         <div>
           <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300 mb-1">Sample Log Lines</label>
-          <textarea x-model="logText" @input="onInputChange()" rows="8" 
-            class="w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-sm focus:border-indigo-500 focus:outline-none"
+          <textarea x-model="logText" @input="onInputChange()" rows="10" 
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 font-mono text-xs sm:text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
             placeholder="Paste log lines here..."></textarea>
         </div>
       </div>
 
       <!-- Results Column -->
-      <div class="space-y-4">
-        <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300">Results & Match Output</label>
+      <div class="lg:col-span-7 space-y-4">
+        <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300">Match Results</label>
 
-        <!-- Error Alert -->
         <template x-if="errorMessage">
-          <div class="p-3 bg-red-900/50 border border-red-500 text-red-200 rounded text-sm font-mono" x-text="errorMessage"></div>
+          <div class="p-4 bg-red-950/60 border border-red-500/50 text-red-200 rounded-lg text-xs sm:text-sm font-mono" x-text="errorMessage"></div>
         </template>
 
-        <!-- Results List -->
-        <div class="bg-slate-800 border border-slate-700 rounded p-4 space-y-4 max-h-[650px] overflow-y-auto">
+        <div class="bg-slate-800/60 border border-slate-700/80 rounded-lg p-3 sm:p-4 space-y-4 max-h-[750px] overflow-y-auto">
           <template x-if="results.length === 0 && !errorMessage">
-            <p class="text-slate-500 text-sm">No matches run yet. Enter pattern and log text above.</p>
+            <p class="text-slate-500 text-sm py-4 text-center">No matches run yet. Enter pattern and log text above.</p>
           </template>
 
           <template x-for="res in results" :key="res.line_number">
-            <div class="p-3 rounded border" :class="res.matched ? 'border-emerald-700 bg-slate-900/60' : 'border-rose-900/50 bg-slate-900/30'">
-              <div class="flex items-center justify-between text-xs mb-2">
-                <span class="font-bold text-slate-400">Line <span x-text="res.line_number"></span></span>
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase" 
-                      :class="res.matched ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'"
+            <div class="p-3 sm:p-4 rounded-lg border transition-all" 
+                 :class="res.matched ? 'border-slate-700 bg-slate-900/80' : 'border-rose-900/50 bg-rose-950/10'">
+              
+              <!-- Card Header -->
+              <div class="flex items-center justify-between text-xs mb-3">
+                <span class="font-semibold text-slate-400">Line <span x-text="res.line_number"></span></span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide" 
+                      :class="res.matched ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-900'"
                       x-text="res.matched ? 'Match' : 'No Match'"></span>
               </div>
               
-              <!-- Original Line display -->
-              <p class="font-mono text-xs break-all text-slate-300 mb-2" x-text="res.line_text"></p>
-
-              <!-- Parsed JSON Output -->
+              <!-- Full Match Highlight Display -->
               <template x-if="res.matched">
-                <pre class="bg-slate-950 p-2 rounded text-xs font-mono text-indigo-300 overflow-x-auto" x-text="JSON.stringify(res.matches, null, 2)"></pre>
+                <div>
+                  <div class="font-mono text-xs sm:text-sm break-all leading-relaxed p-2.5 bg-slate-950 rounded-md border border-slate-800 mb-3 overflow-x-auto">
+                    <template x-for="(seg, idx) in res.segments" :key="idx">
+                      <span>
+                        <template x-if="seg.field">
+                          <span :class="`${getFieldColor(seg.field).bg} ${getFieldColor(seg.field).text} ${getFieldColor(seg.field).border} px-1 py-0.5 rounded border font-semibold inline-block my-0.5`"
+                                :title="seg.field"
+                                x-text="seg.text"></span>
+                        </template>
+                        <template x-if="!seg.field">
+                          <span class="text-slate-400" x-text="seg.text"></span>
+                        </template>
+                      </span>
+                    </template>
+                  </div>
+
+                  <!-- Key/Value Grid -->
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-800/80">
+                    <template x-for="(val, key) in res.matches" :key="key">
+                      <div class="flex items-center text-xs font-mono justify-between p-2 rounded bg-slate-950/80 border border-slate-800/60 overflow-hidden">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 mr-2" 
+                              :class="getFieldColor(key).badge" 
+                              x-text="key"></span>
+                        <span class="text-slate-200 break-all truncate" :title="val" x-text="val"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
               </template>
+
+              <!-- Partial Match Diagnostics (Grokconstructor style) -->
+              <template x-if="!res.matched">
+                <div class="space-y-3">
+                  <div class="text-xs text-rose-300 font-semibold flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <span>Match Failed — Partial Prefix Breakdown:</span>
+                  </div>
+
+                  <template x-if="res.partial_match && res.partial_match.matched_prefix">
+                    <div class="bg-slate-950 p-3 rounded-md border border-slate-800 space-y-2 text-xs font-mono">
+                      <div>
+                        <span class="text-slate-500 uppercase tracking-wider text-[10px] font-bold block mb-1">Matched Grok Prefix:</span>
+                        <div class="text-emerald-400 bg-emerald-950/40 p-2 rounded border border-emerald-900/50 break-all" x-text="res.partial_match.matched_prefix"></div>
+                      </div>
+
+                      <div class="pt-2">
+                        <span class="text-slate-500 uppercase tracking-wider text-[10px] font-bold block mb-1">Mismatch Break Location:</span>
+                        <div class="p-2 bg-slate-900 rounded border border-slate-800 break-all">
+                          <span class="text-slate-500" x-text="res.line_text.substring(0, res.line_text.length - res.partial_match.unmatched_remainder.length)"></span>
+                          <span class="text-rose-400 bg-rose-950/80 px-1 py-0.5 rounded border border-rose-700 font-bold underline" x-text="res.partial_match.unmatched_remainder"></span>
+                        </div>
+                      </div>
+
+                      <template x-if="Object.keys(res.partial_match.matched_fields).length > 0">
+                        <div class="pt-2">
+                          <span class="text-slate-500 uppercase tracking-wider text-[10px] font-bold block mb-1">Fields Captured Before Failure:</span>
+                          <div class="flex flex-wrap gap-1.5">
+                            <template x-for="(val, key) in res.partial_match.matched_fields" :key="key">
+                              <span class="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700 text-slate-300">
+                                <strong x-text="key"></strong>: <span class="text-indigo-300" x-text="val"></span>
+                              </span>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <template x-if="!res.partial_match || !res.partial_match.matched_prefix">
+                    <div class="p-2.5 bg-slate-950 rounded text-xs font-mono text-rose-400 border border-rose-900/30">
+                      Failed at the very first character of the log line.
+                    </div>
+                  </template>
+                </div>
+              </template>
+
             </div>
           </template>
         </div>
@@ -100,28 +198,99 @@
   </div>
 
   <script>
+    const PALETTE = [
+      { bg: 'bg-indigo-500/20', text: 'text-indigo-300', border: 'border-indigo-500/40', badge: 'bg-indigo-950 text-indigo-300 border-indigo-700/60' },
+      { bg: 'bg-emerald-500/20', text: 'text-emerald-300', border: 'border-emerald-500/40', badge: 'bg-emerald-950 text-emerald-300 border-emerald-700/60' },
+      { bg: 'bg-amber-500/20', text: 'text-amber-300', border: 'border-amber-500/40', badge: 'bg-amber-950 text-amber-300 border-amber-700/60' },
+      { bg: 'bg-pink-500/20', text: 'text-pink-300', border: 'border-pink-500/40', badge: 'bg-pink-950 text-pink-300 border-pink-700/60' },
+      { bg: 'bg-purple-500/20', text: 'text-purple-300', border: 'border-purple-500/40', badge: 'bg-purple-950 text-purple-300 border-purple-700/60' },
+      { bg: 'bg-cyan-500/20', text: 'text-cyan-300', border: 'border-cyan-500/40', badge: 'bg-cyan-950 text-cyan-300 border-cyan-700/60' },
+      { bg: 'bg-orange-500/20', text: 'text-orange-300', border: 'border-orange-500/40', badge: 'bg-orange-950 text-orange-300 border-orange-700/60' },
+      { bg: 'bg-rose-500/20', text: 'text-rose-300', border: 'border-rose-500/40', badge: 'bg-rose-950 text-rose-300 border-rose-700/60' },
+      { bg: 'bg-teal-500/20', text: 'text-teal-300', border: 'border-teal-500/40', badge: 'bg-teal-950 text-teal-300 border-teal-700/60' },
+      { bg: 'bg-sky-500/20', text: 'text-sky-300', border: 'border-sky-500/40', badge: 'bg-sky-950 text-sky-300 border-sky-700/60' },
+      { bg: 'bg-lime-500/20', text: 'text-lime-300', border: 'border-lime-500/40', badge: 'bg-lime-950 text-lime-300 border-lime-700/60' },
+      { bg: 'bg-fuchsia-500/20', text: 'text-fuchsia-300', border: 'border-fuchsia-500/40', badge: 'bg-fuchsia-950 text-fuchsia-300 border-fuchsia-700/60' },
+      { bg: 'bg-violet-500/20', text: 'text-violet-300', border: 'border-violet-500/40', badge: 'bg-violet-950 text-violet-300 border-violet-700/60' },
+      { bg: 'bg-yellow-500/20', text: 'text-yellow-300', border: 'border-yellow-500/40', badge: 'bg-yellow-950 text-yellow-300 border-yellow-700/60' },
+      { bg: 'bg-blue-500/20', text: 'text-blue-300', border: 'border-blue-500/40', badge: 'bg-blue-950 text-blue-300 border-blue-700/60' },
+      { bg: 'bg-red-500/20', text: 'text-red-300', border: 'border-red-500/40', badge: 'bg-red-950 text-red-300 border-red-700/60' },
+    ];
+
     function grokApp() {
       return {
-        pattern: localStorage.getItem('grok_pattern') || 'INTERFACE %{WORD}(\.%{WORD:[observer][ingress][vlan][id]})?',
-        customPatterns: localStorage.getItem('grok_custom') || 'STATUS_WORD [\\w-]*',
-        logText: localStorage.getItem('grok_logs') || 'INTERFACE eth0.100\nINTERFACE wlan0',
+        pattern: localStorage.getItem('grok_pattern') || '<%{INT:[syslog][pri]}>%{SYSLOGTIMESTAMP:[timestamp]} %{SYSLOGHOST:[host][hostname]} (?<[syslog][test]>\\d+) %{WORD:[process][name]}: %{GREEDYDATA:[message]}',
+        customPatterns: localStorage.getItem('grok_custom') || '',
+        logText: localStorage.getItem('grok_logs') || '<46>Aug  4 13:45:09 SW-ESCHNELSON-S01-02 00179 mgr:  SME SSH from 172.25.10.124 - MANAGER Mode\n<46>Aug  5 11:04:38 SW-MARKEI-MARIEN-E03-LT-01 00077 ports:  port 14 is now off-line\n<46>Aug  5 11:03:52 SW-CLAURIVE-A-E01-STK 00435 ports:  ST2-CMDR: port 1/19 is Blocked by AAA\n<46>Aug  5 10:59:55 SW-REDGRAND-E03-ONE-01 03363 auth:  User \'manager\' logged out of SSH session from 172.25.10.124',
+        namingFormat: localStorage.getItem('grok_naming_format') || 'bracket',
         liveMode: true,
         results: [],
         errorMessage: '',
+        rawMatchText: '',
+        suggestedFix: '',
+        rawGroupToReplace: null,
         debounceTimer: null,
 
         initApp() {
+          this.checkSyntaxNotice();
           this.triggerMatch();
+        },
+
+        getFieldColor(fieldName) {
+          if (!fieldName) return PALETTE[0];
+          let hash = 0;
+          for (let i = 0; i < fieldName.length; i++) {
+            hash = fieldName.charCodeAt(i) + ((hash << 5) - hash);
+          }
+          const index = Math.abs(hash) % PALETTE.length;
+          return PALETTE[index];
+        },
+
+        checkSyntaxNotice() {
+          // Dynamically find any (?<[field_name]>regex) or (?P<[field_name]>regex) group
+          const match = this.pattern.match(/\(\?(?:<|P<)([^>]+)>(.*?)\)/);
+          if (match) {
+            const rawGroup = match[0];
+            const fieldName = match[1];
+            const innerRegex = match[2];
+
+            this.rawGroupToReplace = rawGroup;
+            this.rawMatchText = rawGroup;
+
+            // Pick standard Grok pattern dynamically based on the inner regex
+            let grokPattern = 'GREEDYDATA';
+            if (innerRegex === '\\d+' || innerRegex === '[0-9]+') {
+              grokPattern = 'INT';
+            } else if (innerRegex === '\\w+') {
+              grokPattern = 'WORD';
+            }
+
+            this.suggestedFix = `%{${grokPattern}:${fieldName}}`;
+          } else {
+            this.suggestedFix = '';
+            this.rawGroupToReplace = null;
+            this.rawMatchText = '';
+          }
+        },
+
+        applyAutoFix() {
+          if (this.rawGroupToReplace && this.suggestedFix) {
+            this.pattern = this.pattern.replace(this.rawGroupToReplace, this.suggestedFix);
+            this.onInputChange();
+          }
         },
 
         saveState() {
           localStorage.setItem('grok_pattern', this.pattern);
           localStorage.setItem('grok_custom', this.customPatterns);
           localStorage.setItem('grok_logs', this.logText);
+          localStorage.setItem('grok_naming_format', this.namingFormat);
         },
 
         onInputChange() {
           this.saveState();
+          this.checkSyntaxNotice();
+
           if (!this.liveMode) return;
           
           clearTimeout(this.debounceTimer);
@@ -139,7 +308,8 @@
               body: JSON.stringify({
                 pattern: this.pattern,
                 custom_patterns: this.customPatterns,
-                log_text: this.logText
+                log_text: this.logText,
+                naming_format: this.namingFormat
               })
             });
             const data = await res.json();
@@ -158,7 +328,12 @@
             const res = await fetch('/api/generate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ pattern: '', custom_patterns: '', log_text: this.logText })
+              body: JSON.stringify({ 
+                pattern: '', 
+                custom_patterns: '', 
+                log_text: this.logText,
+                naming_format: this.namingFormat 
+              })
             });
             const data = await res.json();
             if (data.success) {
