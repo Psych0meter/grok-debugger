@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grok & Regex Debugger</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
+
+  <div class="max-w-7xl mx-auto p-6" x-data="grokApp()" x-init="initApp()">
+    <header class="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
+      <div>
+        <h1 class="text-2xl font-bold text-indigo-400">Grok & Regexp Debugger</h1>
+        <p class="text-xs text-slate-400">Modern log parsing engine with ECS support</p>
+      </div>
+      <div class="flex items-center gap-4">
+        <label class="flex items-center cursor-pointer text-sm gap-2">
+          <input type="checkbox" x-model="liveMode" class="sr-only peer">
+          <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 relative"></div>
+          <span>Live Match</span>
+        </label>
+        <button @click="triggerMatch()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded font-semibold text-sm transition">
+          Check Pattern
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <!-- Inputs Column -->
+      <div class="space-y-4">
+        <!-- Main Pattern -->
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <label class="text-xs uppercase tracking-wider font-semibold text-slate-300">GROK Pattern</label>
+            <button @click="autoGenerate()" class="text-xs text-indigo-400 hover:underline">Pre-generate from log</button>
+          </div>
+          <textarea x-model="pattern" @input="onInputChange()" rows="3" 
+            class="w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-sm focus:border-indigo-500 focus:outline-none"
+            placeholder="INTERFACE %{WORD}(\.%{WORD:[observer][ingress][vlan][id]})?"></textarea>
+        </div>
+
+        <!-- Custom Sub-Patterns -->
+        <div>
+          <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300 mb-1">Custom Sub-Patterns</label>
+          <textarea x-model="customPatterns" @input="onInputChange()" rows="5" 
+            class="w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-sm focus:border-indigo-500 focus:outline-none"
+            placeholder="STATUS_WORD [\w-]*&#10;DOVECOT_PROTO (?<[network][protocol]>pop3|imap)"></textarea>
+        </div>
+
+        <!-- Sample Logs -->
+        <div>
+          <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300 mb-1">Sample Log Lines</label>
+          <textarea x-model="logText" @input="onInputChange()" rows="8" 
+            class="w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-sm focus:border-indigo-500 focus:outline-none"
+            placeholder="Paste log lines here..."></textarea>
+        </div>
+      </div>
+
+      <!-- Results Column -->
+      <div class="space-y-4">
+        <label class="block text-xs uppercase tracking-wider font-semibold text-slate-300">Results & Match Output</label>
+
+        <!-- Error Alert -->
+        <template x-if="errorMessage">
+          <div class="p-3 bg-red-900/50 border border-red-500 text-red-200 rounded text-sm font-mono" x-text="errorMessage"></div>
+        </template>
+
+        <!-- Results List -->
+        <div class="bg-slate-800 border border-slate-700 rounded p-4 space-y-4 max-h-[650px] overflow-y-auto">
+          <template x-if="results.length === 0 && !errorMessage">
+            <p class="text-slate-500 text-sm">No matches run yet. Enter pattern and log text above.</p>
+          </template>
+
+          <template x-for="res in results" :key="res.line_number">
+            <div class="p-3 rounded border" :class="res.matched ? 'border-emerald-700 bg-slate-900/60' : 'border-rose-900/50 bg-slate-900/30'">
+              <div class="flex items-center justify-between text-xs mb-2">
+                <span class="font-bold text-slate-400">Line <span x-text="res.line_number"></span></span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase" 
+                      :class="res.matched ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'"
+                      x-text="res.matched ? 'Match' : 'No Match'"></span>
+              </div>
+              
+              <!-- Original Line display -->
+              <p class="font-mono text-xs break-all text-slate-300 mb-2" x-text="res.line_text"></p>
+
+              <!-- Parsed JSON Output -->
+              <template x-if="res.matched">
+                <pre class="bg-slate-950 p-2 rounded text-xs font-mono text-indigo-300 overflow-x-auto" x-text="JSON.stringify(res.matches, null, 2)"></pre>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function grokApp() {
+      return {
+        pattern: localStorage.getItem('grok_pattern') || 'INTERFACE %{WORD}(\.%{WORD:[observer][ingress][vlan][id]})?',
+        customPatterns: localStorage.getItem('grok_custom') || 'STATUS_WORD [\\w-]*',
+        logText: localStorage.getItem('grok_logs') || 'INTERFACE eth0.100\nINTERFACE wlan0',
+        liveMode: true,
+        results: [],
+        errorMessage: '',
+        debounceTimer: null,
+
+        initApp() {
+          this.triggerMatch();
+        },
+
+        saveState() {
+          localStorage.setItem('grok_pattern', this.pattern);
+          localStorage.setItem('grok_custom', this.customPatterns);
+          localStorage.setItem('grok_logs', this.logText);
+        },
+
+        onInputChange() {
+          this.saveState();
+          if (!this.liveMode) return;
+          
+          clearTimeout(this.debounceTimer);
+          this.debounceTimer = setTimeout(() => {
+            this.triggerMatch();
+          }, 300);
+        },
+
+        async triggerMatch() {
+          this.errorMessage = '';
+          try {
+            const res = await fetch('/api/match', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                pattern: this.pattern,
+                custom_patterns: this.customPatterns,
+                log_text: this.logText
+              })
+            });
+            const data = await res.json();
+            if (data.success) {
+              this.results = data.results;
+            } else {
+              this.errorMessage = data.error;
+            }
+          } catch (err) {
+            this.errorMessage = "Failed to communicate with server backend.";
+          }
+        },
+
+        async autoGenerate() {
+          try {
+            const res = await fetch('/api/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pattern: '', custom_patterns: '', log_text: this.logText })
+            });
+            const data = await res.json();
+            if (data.success) {
+              this.pattern = data.generated_pattern;
+              this.onInputChange();
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+    }
+  </script>
+</body>
+</html>
