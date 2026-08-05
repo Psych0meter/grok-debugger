@@ -60,7 +60,7 @@
         <div>
           <div class="flex items-center gap-2.5">
             <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">Grok & Regexp Debugger</h1>
-            <span class="px-2 py-0.5 text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full">v1.0</span>
+            <span class="px-2 py-0.5 text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full">v1.1</span>
           </div>
           <p class="text-xs text-slate-400 mt-0.5">ECS-compliant log parsing engine with real-time pattern diagnostics</p>
         </div>
@@ -96,7 +96,6 @@
       </div>
     </header>
 
-    <!-- Two column layout -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
       <!-- Left column -->
       <div class="lg:col-span-5 space-y-5">
@@ -108,12 +107,21 @@
               GROK / Regex Pattern
             </label>
 
-            <div class="flex items-center gap-2">
-              <select x-model="namingFormat" @change="saveState()"
-                      class="bg-slate-950 border border-slate-800 text-[11px] text-slate-300 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 cursor-pointer">
-                <option value="dot">Dot syntax (client.ip)</option>
-                <option value="bracket">ECS Bracket ([client][ip])</option>
-              </select>
+            <div class="flex items-center gap-3">
+              <!-- Replaced Dropdown with Format Toggle Button -->
+              <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shrink-0">
+                <button @click="setNamingFormat('dot')"
+                        :class="namingFormat === 'dot' ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                        class="px-2 py-1 rounded-md transition text-[11px]" title="Dot syntax (client.ip)">
+                  Dot Format
+                </button>
+                <button @click="setNamingFormat('bracket')"
+                        :class="namingFormat === 'bracket' ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                        class="px-2 py-1 rounded-md transition text-[11px]" title="ECS Bracket ([client][ip])">
+                  ECS Format
+                </button>
+              </div>
+
               <button @click="autoGenerate()" class="inline-flex items-center gap-1.5 text-[11px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-1 rounded-md transition font-medium">
                 <span>Auto-Generate</span>
                 <span class="text-[9px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1 py-0.5 rounded leading-none">
@@ -127,6 +135,7 @@
             class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 font-mono text-xs sm:text-sm text-indigo-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none h-32 leading-relaxed custom-scrollbar resize-y"
             placeholder="<%{INT:[syslog][pri]}>%{SYSLOGTIMESTAMP:[timestamp]}..."></textarea>
 
+          <!-- Syntax Auto-Fix Card (Legacy Regex) -->
           <template x-if="suggestedFix">
             <div class="p-3 bg-amber-950/30 border border-amber-600/30 rounded-lg text-xs text-amber-200/90 flex items-start gap-2.5">
               <svg class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -136,6 +145,22 @@
                   <code class="bg-slate-950 px-2 py-0.5 rounded text-amber-300 border border-slate-800 font-mono text-[11px]" x-text="suggestedFix"></code>
                   <button @click="applyAutoFix()" class="text-[11px] bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold px-2 py-0.5 rounded transition shadow-sm">
                     Convert to Grok
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Mixed Format Normalization Card -->
+          <template x-if="inconsistentFields.length > 0">
+            <div class="p-3 bg-sky-950/30 border border-sky-600/30 rounded-lg text-xs text-sky-200/90 flex items-start gap-2.5">
+              <svg class="w-4 h-4 text-sky-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <div class="space-y-1.5 flex-1 min-w-0">
+                <p class="leading-tight"><strong class="text-sky-300">Format Mismatch:</strong> Found fields not matching the selected <span class="font-bold" x-text="namingFormat === 'dot' ? 'Dot' : 'ECS Bracket'"></span> format.</p>
+                <div class="flex items-center gap-2 pt-0.5 flex-wrap">
+                  <span class="text-sky-400/80 text-[10px]">e.g., <code class="text-sky-300 font-mono" x-text="inconsistentFields[0]"></code></span>
+                  <button @click="normalizePattern()" class="text-[11px] bg-sky-600 hover:bg-sky-500 text-white font-bold px-2 py-0.5 rounded transition shadow-sm">
+                    Normalize Pattern
                   </button>
                 </div>
               </div>
@@ -210,7 +235,6 @@
               </button>
             </div>
 
-            <!-- Cards vs JSON Toggle -->
             <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shrink-0">
               <button @click="viewMode = 'cards'; saveState()"
                       :class="viewMode === 'cards' ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
@@ -225,7 +249,6 @@
               </button>
             </div>
 
-            <!-- Order vs A-Z Toggle -->
             <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shrink-0">
               <button @click="sortMode = 'order'; saveState()"
                       :class="sortMode === 'order' ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
@@ -241,7 +264,6 @@
           </div>
         </div>
 
-        <!-- Error message -->
         <template x-if="errorMessage">
           <div class="p-4 bg-rose-950/40 border border-rose-800/60 text-rose-200 rounded-xl text-xs font-mono leading-relaxed flex items-start gap-2.5">
             <svg class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -249,7 +271,6 @@
           </div>
         </template>
 
-        <!-- Results list -->
         <div id="resultsContainer" class="results-container space-y-3.5 overflow-y-auto custom-scrollbar pr-0.5" style="max-height: 820px;">
           <template x-if="results.length === 0 && !errorMessage">
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center space-y-2">
@@ -300,7 +321,6 @@
 
               <template x-if="res.matched">
                 <div class="space-y-3">
-                  <!-- Segment Highlighting -->
                   <div class="font-mono text-xs break-all leading-relaxed p-3 bg-slate-950 rounded-lg border border-slate-800 overflow-x-auto custom-scrollbar">
                     <template x-for="(seg, idx) in res.segments" :key="idx">
                       <span>
@@ -316,7 +336,6 @@
                     </template>
                   </div>
 
-                  <!-- Cards View -->
                   <template x-if="!res.showJson && viewMode !== 'json'">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                       <template x-for="item in getDisplayFields(res)" :key="item.key">
@@ -330,7 +349,6 @@
                     </div>
                   </template>
 
-                  <!-- Dynamic JSON View (Respects Order vs A-Z mode) -->
                   <template x-if="res.showJson || viewMode === 'json'">
                     <div class="relative group pt-1">
                       <button @click="copyJson(res.json_data, $event)"
@@ -468,6 +486,7 @@
         rawGroupToReplace: null,
         debounceTimer: null,
         fieldColorMap: {},
+        inconsistentFields: [],
 
         get lineCount() {
           return this.logText ? this.logText.split('\n').length : 1;
@@ -519,7 +538,75 @@
 
         initApp() {
           this.checkSyntaxNotice();
+          this.analyzeFormats();
           this.triggerMatch();
+        },
+
+        setNamingFormat(format) {
+          this.namingFormat = format;
+          this.analyzeFormats();
+          this.saveState();
+          this.onInputChange();
+        },
+
+        analyzeFormats() {
+          const grokRegex = /%\{[^:]+:([^}:]+)(?::[^}]+)?\}/g;
+          const namedGroupRegex = /\(\?(?:<|P<)([^>]+)>/g;
+          
+          let fields = [];
+          let match;
+          
+          while ((match = grokRegex.exec(this.pattern)) !== null) {
+            fields.push(match[1]);
+          }
+          while ((match = namedGroupRegex.exec(this.pattern)) !== null) {
+            fields.push(match[1]);
+          }
+          
+          let detectedInconsistent = [];
+          
+          fields.forEach(f => {
+            const isDot = /^[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)+$/.test(f);
+            const isBracket = /^(\[[a-zA-Z0-9_\-]+\])+$/.test(f);
+            
+            if (this.namingFormat === 'dot' && isBracket) {
+               detectedInconsistent.push(f);
+            }
+            if (this.namingFormat === 'bracket' && isDot) {
+               detectedInconsistent.push(f);
+            }
+          });
+          
+          this.inconsistentFields = [...new Set(detectedInconsistent)];
+        },
+
+        normalizePattern() {
+          let newPattern = this.pattern;
+          
+          const convertField = (fieldName) => {
+            if (this.namingFormat === 'bracket') {
+              if (/^[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)+$/.test(fieldName)) {
+                return fieldName.split('.').map(p => `[${p}]`).join('');
+              }
+            } else {
+              if (/^(\[[a-zA-Z0-9_\-]+\])+$/.test(fieldName)) {
+                return fieldName.replace(/^\[|\]$/g, '').split('][').join('.');
+              }
+            }
+            return fieldName;
+          };
+
+          newPattern = newPattern.replace(/(%\{[^:]+:)([^}:]+)((?::[^}]+)?\})/g, (match, prefix, field, suffix) => {
+            return prefix + convertField(field) + suffix;
+          });
+          
+          newPattern = newPattern.replace(/(\(\?(?:<|P<))([^>]+)(>)/g, (match, prefix, field, suffix) => {
+            return prefix + convertField(field) + suffix;
+          });
+          
+          this.pattern = newPattern;
+          this.analyzeFormats();
+          this.onInputChange();
         },
 
         sortObjectKeys(obj) {
@@ -596,6 +683,7 @@
           this.suggestedFix = '';
           this.rawGroupToReplace = null;
           this.fieldColorMap = {};
+          this.inconsistentFields = [];
 
           this.saveState();
           this.onInputChange();
@@ -671,6 +759,7 @@
         onInputChange() {
           this.saveState();
           this.checkSyntaxNotice();
+          this.analyzeFormats();
 
           if (!this.liveMode) return;
 
