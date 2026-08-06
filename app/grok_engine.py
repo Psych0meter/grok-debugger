@@ -1,17 +1,52 @@
 import re
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from pygrok import Grok
 
-
 class GrokDebuggerEngine:
-    def __init__(self):
-        self.grok_field_re = re.compile(r'%\{([A-Z0-9_]+):([^}:]+)(:[a-zA-Z0-9_]+)?\}')
-        self.regex_group_re = re.compile(r'\(\?(?:<|P<)([^>]+)>')
+    """
+    Core engine for Grok pattern matching, validation, and generation.
+    Handles pattern sanitization, field name validation, and partial matching diagnostics.
+    """
 
+    def __init__(self):
+        """
+        Initialize the GrokDebuggerEngine with precompiled regex patterns for performance.
+        Precompiled patterns include:
+        - Grok field patterns (e.g., `%{IP:client.ip}`)
+        - Regex group patterns (e.g., `(?P<client.ip>...)`)
+        - Field name validation patterns (dot and bracket notation)
+        - Type detection patterns (IPv4, IPv6, paths, timestamps, etc.)
+        """
+        # Regex for Grok field patterns (e.g., `%{IP:client.ip}`)
+        self.grok_field_re = re.compile(r'%\{([A-Z0-9_]+):([^}:]+)(:[a-zA-Z0-9_]+)?\}')
+
+        # Regex for named regex groups (e.g., `(?P<client.ip>...)`)
+        self.regex_group_re = re.compile(r'\(\?\?(?:<|P<)([^>]+)>')
+
+        # Regex for validating Logstash field names in dot notation (e.g., `client.ip`)
         self.valid_dot_field = re.compile(r'^[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)*$')
+
+        # Regex for validating Logstash field names in bracket notation (e.g., `[client][ip]`)
         self.valid_bracket_field = re.compile(r'^(\[[a-zA-Z0-9_\-]+\])+$')
 
+        # Precompiled regex for type detection (used in `detect_grok_type`)
+        self.ipv4_re = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+        self.ipv6_re = re.compile(r'^[0-9a-fA-F:]+$')
+        self.path_re = re.compile(r'^(?:/[a-zA-Z0-9_.\-~+]+)+/?$')
+        self.timestamp_iso8601_re = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}')
+        self.number_re = re.compile(r'^\d+\.?\d*$')
+
     def parse_custom_patterns(self, custom_patterns_raw: str) -> Dict[str, str]:
+        """
+        Parse custom Grok patterns from a raw string.
+
+        Args:
+            custom_patterns_raw: Raw string containing custom patterns, one per line.
+                                Lines starting with `#` are treated as comments.
+
+        Returns:
+            Dictionary of custom patterns, where keys are pattern names and values are regex patterns.
+        """
         patterns = {}
         for line in custom_patterns_raw.splitlines():
             line = line.strip()
@@ -22,20 +57,45 @@ class GrokDebuggerEngine:
                 patterns[parts[0]] = parts[1]
         return patterns
 
-    def validate_logstash_field_name(self, field_name: str):
+    def validate_logstash_field_name(self, field_name: str) -> None:
+        """
+        Validate a Logstash field name (dot or bracket notation).
+
+        Args:
+            field_name: The field name to validate.
+
+        Raises:
+            ValueError: If the field name is invalid (not in dot or bracket notation).
+        """
         if not (self.valid_dot_field.match(field_name) or self.valid_bracket_field.match(field_name)):
             raise ValueError(
                 f"Invalid Logstash field name '{field_name}'. "
-                f"Logstash requires either dot-notation (e.g. 'client.ip') "
-                f"or bracket-notation (e.g. '[client][ip]')."
+                f"Logstash requires either dot-notation (e.g., 'client.ip') "
+                f"or bracket-notation (e.g., '[client][ip]')."
             )
 
-    def _sanitize_string(self, text: str, mapping: Dict[str, str], counter: List[int]) -> str:
-        def grok_repl(match):
+    def _sanitize_string(
+        self,
+        text: str,
+        mapping: Dict[str, str],
+        counter: List[int]
+    ) -> str:
+        """
+        Sanitize field names in Grok and regex patterns by replacing them with safe keys.
+
+        Args:
+            text: The input text (Grok or regex pattern).
+            mapping: Dictionary to store the mapping between safe keys and original field names.
+            counter: List containing a single integer used to generate unique safe keys.
+
+        Returns:
+            Sanitized text with field names replaced by safe keys.
+        """
+        def grok_repl(match: re.Match) -> str:
             pattern_name = match.group(1)
             field_name = match.group(2)
             type_spec = match.group(3) or ""
-            
+
             self.validate_logstash_field_name(field_name)
 
             safe_key = f"__FIELD_{counter[0]}__"
@@ -43,7 +103,7 @@ class GrokDebuggerEngine:
             mapping[safe_key] = field_name
             return f"%{{{pattern_name}:{safe_key}{type_spec}}}"
 
-        def regex_repl(match):
+        def regex_repl(match: re.Match) -> str:
             field_name = match.group(1)
             self.validate_logstash_field_name(field_name)
 
@@ -56,12 +116,32 @@ class GrokDebuggerEngine:
         text = self.regex_group_re.sub(regex_repl, text)
         return text
 
-    def sanitize_field_names(self, pattern_str: str, custom_patterns: Dict[str, str]) -> Tuple[str, Dict[str, str], Dict[str, str]]:
-        mapping = {}
+    def sanitize_field_names(
+        self,
+        pattern_str: str,
+        custom_patterns: Optional[Dict[str, str]] = None
+    ) -> Tuple[str, Dict[str, str], Dict[str, str]]:
+        """
+        Sanitize field names in Grok patterns and custom patterns.
+
+        Args:
+            pattern_str: The main Grok pattern string.
+            custom_patterns: Optional dictionary of custom patterns.
+
+        Returns:
+            Tuple containing:
+            - Sanitized pattern string.
+            - Sanitized custom patterns dictionary.
+            - Mapping of safe keys to original field names.
+        """
+        if custom_patterns is None:
+            custom_patterns = {}
+
+        mapping: Dict[str, str] = {}
         counter = [0]
 
         sanitized_pattern = self._sanitize_string(pattern_str, mapping, counter)
-        
+
         sanitized_custom = {}
         for k, v in custom_patterns.items():
             sanitized_custom[k] = self._sanitize_string(v, mapping, counter)
@@ -69,7 +149,19 @@ class GrokDebuggerEngine:
         return sanitized_pattern, sanitized_custom, mapping
 
     def unflatten_dict(self, flat_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """Converts flat dot/bracket notation dictionary keys into nested dictionary structures."""
+        """
+        Convert a flat dictionary with dot/bracket notation keys into a nested dictionary.
+
+        Example:
+            Input: {"client.ip": "192.168.1.1", "[server][port]": "80"}
+            Output: {"client": {"ip": "192.168.1.1"}, "server": {"port": "80"}}
+
+        Args:
+            flat_dict: Flat dictionary with dot/bracket notation keys.
+
+        Returns:
+            Nested dictionary.
+        """
         result = {}
         for key, value in flat_dict.items():
             parts = [p for p in re.split(r'[\[\]\.]+', key) if p]
@@ -83,9 +175,29 @@ class GrokDebuggerEngine:
             curr[parts[-1]] = value
         return result
 
-    def find_partial_match(self, pattern_str: str, custom_patterns: Dict[str, str], line: str, strict_mode: bool = False) -> Dict[str, Any]:
-        """Progressively tests pattern tokens to find the longest matching prefix when a full match fails."""
-        tokens = re.split(r'(%\{[^{}]+\}|\(\?<[^>]+>.*?\))', pattern_str)
+    def find_partial_match(
+        self,
+        pattern_str: str,
+        custom_patterns: Dict[str, str],
+        line: str,
+        strict_mode: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Progressively test pattern tokens to find the longest matching prefix when a full match fails.
+
+        Args:
+            pattern_str: The Grok pattern string.
+            custom_patterns: Dictionary of custom patterns.
+            line: The log line to match.
+            strict_mode: If True, require a full line match (^...$). Otherwise, allow substring matches.
+
+        Returns:
+            Dictionary containing:
+            - matched_prefix: The longest matching prefix of the pattern.
+            - matched_fields: Fields captured before the mismatch.
+            - unmatched_remainder: The part of the line that failed to match.
+        """
+        tokens = re.split(r'(%\{[^{}]+\}|\(?<[^>]+>.*?\))', pattern_str)
         tokens = [t for t in tokens if t]
 
         longest_matched_prefix = ""
@@ -95,15 +207,17 @@ class GrokDebuggerEngine:
         for i in range(1, len(tokens) + 1):
             sub_pattern = "".join(tokens[:i])
             try:
-                sanitized_pattern, sanitized_custom, field_map = self.sanitize_field_names(sub_pattern, custom_patterns)
+                sanitized_pattern, sanitized_custom, field_map = self.sanitize_field_names(
+                    sub_pattern, custom_patterns
+                )
                 sub_grok = Grok(sanitized_pattern, custom_patterns=sanitized_custom)
                 match = sub_grok.regex_obj.fullmatch(line) if strict_mode else sub_grok.regex_obj.search(line)
-                
+
                 if match:
                     matched_len = match.end()
                     raw_dict = match.groupdict()
                     cleaned_dict = {field_map.get(k, k): v for k, v in raw_dict.items() if v is not None}
-                    
+
                     longest_matched_prefix = sub_pattern
                     longest_matched_dict = cleaned_dict
                     longest_unmatched_remainder = line[matched_len:]
@@ -118,12 +232,82 @@ class GrokDebuggerEngine:
             "unmatched_remainder": longest_unmatched_remainder
         }
 
-    def execute_match(self, pattern_str: str, custom_patterns_raw: str, text: str, strict_mode: bool = False) -> List[Dict[str, Any]]:
+    def _build_match_result(
+        self,
+        line: str,
+        match: re.Match,
+        field_map: Dict[str, str],
+        strict_mode: bool
+    ) -> Dict[str, Any]:
+        """
+        Build the result for a matched line, including extracted fields and spans.
+
+        Args:
+            line: The log line that matched.
+            match: The regex match object.
+            field_map: Mapping of safe keys to original field names.
+            strict_mode: Whether strict mode was used.
+
+        Returns:
+            Dictionary containing:
+            - matches_dict: Dictionary of matched field names and values.
+            - spans_list: List of spans with field names and their positions.
+        """
+        raw_dict = match.groupdict()
+        matches_dict = {}
+        spans_list = []
+
+        for key, val in raw_dict.items():
+            if val is None:
+                continue
+            final_key = field_map.get(key, key)
+            matches_dict[final_key] = val
+
+            s_start, s_end = match.span(key)
+            if s_end > s_start:
+                spans_list.append({
+                    "field": final_key,
+                    "span": (s_start, s_end)
+                })
+
+        spans_list.sort(key=lambda x: x["span"][0])
+        return {"matches_dict": matches_dict, "spans_list": spans_list}
+
+    def execute_match(
+        self,
+        pattern_str: str,
+        custom_patterns_raw: str,
+        text: str,
+        strict_mode: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute Grok pattern matching against the provided text.
+
+        Args:
+            pattern_str: The Grok pattern string.
+            custom_patterns_raw: Raw string of custom patterns.
+            text: The log text to match against.
+            strict_mode: If True, require a full line match (^...$). Otherwise, allow substring matches.
+
+        Returns:
+            List of dictionaries, each representing the match result for a line.
+            Each result includes:
+            - line_number: Line number in the input text.
+            - matched: Whether the line matched the pattern.
+            - line_text: The original line text.
+            - segments: List of text segments with field annotations.
+            - matches: Dictionary of matched field names and values.
+            - ordered_matches: List of matches ordered by position in the line.
+            - json_data: Nested dictionary of matched fields.
+            - partial_match: Partial match information (if no full match).
+        """
         if not pattern_str or not text:
             return []
 
         custom_patterns = self.parse_custom_patterns(custom_patterns_raw)
-        sanitized_pattern, sanitized_custom, field_map = self.sanitize_field_names(pattern_str, custom_patterns)
+        sanitized_pattern, sanitized_custom, field_map = self.sanitize_field_names(
+            pattern_str, custom_patterns
+        )
 
         try:
             grok = Grok(sanitized_pattern, custom_patterns=sanitized_custom)
@@ -136,28 +320,12 @@ class GrokDebuggerEngine:
             if not line.strip():
                 continue
 
-            # Switch between Strict Full Match (^...$) and Flexible Substring Search
             match = compiled_regex.fullmatch(line) if strict_mode else compiled_regex.search(line)
 
             if match:
-                raw_dict = match.groupdict()
-                matches_dict = {}
-                spans_list = []
-
-                for key, val in raw_dict.items():
-                    if val is None:
-                        continue
-                    final_key = field_map.get(key, key)
-                    matches_dict[final_key] = val
-                    
-                    s_start, s_end = match.span(key)
-                    if s_end > s_start:
-                        spans_list.append({
-                            "field": final_key,
-                            "span": (s_start, s_end)
-                        })
-
-                spans_list.sort(key=lambda x: x["span"][0])
+                match_result = self._build_match_result(line, match, field_map, strict_mode)
+                matches_dict = match_result["matches_dict"]
+                spans_list = match_result["spans_list"]
 
                 ordered_matches = [
                     {"key": item["field"], "value": matches_dict[item["field"]]}
@@ -195,7 +363,9 @@ class GrokDebuggerEngine:
                     "json_data": json_nested
                 })
             else:
-                partial_info = self.find_partial_match(pattern_str, custom_patterns, line, strict_mode=strict_mode)
+                partial_info = self.find_partial_match(
+                    pattern_str, custom_patterns, line, strict_mode=strict_mode
+                )
                 results.append({
                     "line_number": line_idx + 1,
                     "matched": False,
@@ -209,12 +379,55 @@ class GrokDebuggerEngine:
 
         return results
 
+    def detect_grok_type(self, val: str) -> str:
+        """
+        Detect the most appropriate Grok type for a given value.
+
+        Args:
+            val: The value to analyze.
+
+        Returns:
+            The detected Grok type (e.g., "IP", "PATH", "INT", "TIMESTAMP_ISO8601").
+        """
+        if not val:
+            return "DATA"
+
+        cleaned = val.strip('\'"<>()[]{}')
+
+        if self.ipv4_re.match(cleaned) or (':' in cleaned and self.ipv6_re.match(cleaned)):
+            return "IP"
+
+        if '/' in cleaned and self.path_re.match(cleaned):
+            return "PATH"
+
+        if self.timestamp_iso8601_re.match(cleaned):
+            return "TIMESTAMP_ISO8601"
+
+        if cleaned.isdigit():
+            return "INT"
+
+        if self.number_re.match(cleaned):
+            return "NUMBER"
+
+        return "NOTSPACE"
+
     def pregenerate_pattern(self, text: str, format_mode: str = "dot") -> str:
+        """
+        Automatically generate a Grok pattern from sample log text.
+
+        Args:
+            text: Sample log text (one or more lines).
+            format_mode: Field naming format ("dot" for `client.ip` or "bracket" for `[client][ip]`).
+
+        Returns:
+            Generated Grok pattern.
+        """
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return "%{GREEDYDATA:message}"
 
         def format_field(name: str, index: int) -> str:
+            """Format a field name based on the selected naming convention."""
             field_name = name if name else f"field{index}"
             if format_mode == "bracket":
                 parts = field_name.strip('[]').split('.')
@@ -222,32 +435,17 @@ class GrokDebuggerEngine:
             return field_name
 
         def escape_literal(s: str) -> str:
+            """Escape special regex characters in a literal string."""
             return re.sub(r'([\\^$\.|?*+()\[\]{}])', r'\\\1', s)
 
-        def detect_grok_type(val: str) -> str:
-            if not val:
-                return "DATA"
-            
-            cleaned = val.strip('\'"<>()[]{}')
-
-            if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', cleaned) or (':' in cleaned and re.match(r'^[0-9a-fA-F:]+$', cleaned)):
-                return "IP"
-
-            if '/' in cleaned and re.match(r'^(?:/[a-zA-Z0-9_.\-~+]+)+/?$', cleaned):
-                return "PATH"
-
-            if re.match(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}', cleaned):
-                return "TIMESTAMP_ISO8601"
-
-            if cleaned.isdigit():
-                return "INT"
-
-            if re.match(r'^\d+\.\d+$', cleaned):
-                return "NUMBER"
-
-            return "NOTSPACE"
-
         def tokenize_line(line: str) -> List[Tuple[str, bool]]:
+            """
+            Tokenize a log line into candidate values for pattern generation.
+
+            Returns:
+                List of tuples (token, is_candidate), where `is_candidate` indicates
+                whether the token is a potential field (not just punctuation/whitespace).
+            """
             pattern = (
                 r'([a-zA-Z0-9_\-]+=)|'                # Key=Value prefixes
                 r'(?:/[a-zA-Z0-9_.\-~+]+)+/?|'        # Unix File Paths
@@ -293,7 +491,7 @@ class GrokDebuggerEngine:
                 continue
 
             is_variable = len(set(values_at_pos)) > 1
-            grok_type = detect_grok_type(base_val)
+            grok_type = self.detect_grok_type(base_val)
 
             if grok_type in SPECIFIC_TYPES or is_variable:
                 field_counter += 1
