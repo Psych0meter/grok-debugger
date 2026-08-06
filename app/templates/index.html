@@ -800,6 +800,59 @@
           return Object.keys(res.matches).sort().map(k => ({ key: k, value: res.matches[k] }));
         },
 
+        resolveRegexToGrok(regex) {
+          const normalized = regex.trim();
+
+          const mappings = [
+            // Numbers
+            { test: /^\\d\+$/, grok: 'INT' },
+            { test: /^\[0-9\]\+$/, grok: 'INT' },
+            { test: /^\\d\*\$/, grok: 'NUMBER' },
+            { test: /^\[0-9\]\*\$/, grok: 'NUMBER' },
+
+            // Words / text
+            { test: /^\\w\+$/, grok: 'WORD' },
+            { test: /^\\w\*$/, grok: 'WORD' },
+
+            // Non whitespace
+            { test: /^\\S\+$/, grok: 'NOTSPACE' },
+            { test: /^\\S\*$/, grok: 'NOTSPACE' },
+
+            // Whitespace
+            { test: /^\\s\+$/, grok: 'SPACE' },
+            { test: /^\\s\*$/, grok: 'SPACE' },
+
+            // Any characters
+            { test: /^\.\+$/, grok: 'GREEDYDATA' },
+            { test: /^\.\*$/, grok: 'GREEDYDATA' },
+
+            // IP addresses
+            { 
+              test: /^\(\?P?<[^>]+>.*\)$/,
+              grok: 'IP'
+            },
+
+            // Hex
+            { test: /^\\x[0-9a-fA-F]+$/, grok: 'BASE16NUM' },
+
+            // UUID
+            { 
+              test: /^[0-9a-fA-F-]{36}$/,
+              grok: 'UUID'
+            },
+
+            // Quoted strings
+            {
+              test: /^".*"$/,
+              grok: 'QUOTEDSTRING'
+            }
+          ];
+
+          const found = mappings.find(item => item.test.test(normalized));
+
+          return found ? found.grok : 'GREEDYDATA';
+        },
+
         checkSyntaxNotice() {
           const match = this.pattern.match(/\(\?(?:<|P<)([^>]+)>(.*?)\)/);
           if (match) {
@@ -810,9 +863,7 @@
             this.rawGroupToReplace = rawGroup;
             this.rawMatchText = rawGroup;
 
-            let grokPattern = 'GREEDYDATA';
-            if (innerRegex === '\\d+' || innerRegex === '[0-9]+') grokPattern = 'INT';
-            else if (innerRegex === '\\w+') grokPattern = 'WORD';
+            const grokPattern = this.resolveRegexToGrok(innerRegex);
 
             this.suggestedFix = `%{${grokPattern}:${fieldName}}`;
           } else {
