@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from app.config import settings
 from app.grok_engine import GrokDebuggerEngine
 
-# Initialize FastAPI app with title and dynamic metadata from config
 app = FastAPI(
     title="Modern Grok Debugger",
     version=settings.version
@@ -21,14 +20,11 @@ class DebugRequest(BaseModel):
     custom_patterns: Optional[str] = ""
     log_text: str
     naming_format: Optional[str] = "dot"  # "dot" or "bracket"
+    strict_mode: Optional[bool] = False  # Strict full-line match (^...$) vs Substring match
 
 
 @app.get("/api/config")
 async def get_config():
-    """
-    Serves application properties, versioning, and feature flags
-    directly to Alpine.js upon application startup.
-    """
     return settings.get_public_config()
 
 
@@ -43,7 +39,8 @@ async def match_grok(data: DebugRequest):
         matches = engine.execute_match(
             data.pattern, 
             data.custom_patterns or "", 
-            data.log_text
+            data.log_text,
+            strict_mode=data.strict_mode or False
         )
         return {"success": True, "results": matches}
     except Exception as e:

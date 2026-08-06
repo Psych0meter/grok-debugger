@@ -107,6 +107,19 @@
             </label>
 
             <div class="flex items-center gap-3">
+              <!-- Match Mode Toggle Button -->
+              <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shrink-0">
+                <button @click="strictMode = false; saveState(); onInputChange()"
+                        :class="!strictMode ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                        class="px-2 py-1 rounded-md transition text-[11px]" title="Flexible match (substring search anywhere in line)">
+                  Flexible
+                </button>
+                <button @click="strictMode = true; saveState(); onInputChange()"
+                        :class="strictMode ? 'bg-indigo-600 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+                        class="px-2 py-1 rounded-md transition text-[11px]" title="Strict match (requires exact full line match ^...$)">
+                  Strict
+                </button>
+              </div>
               <!-- Replaced Dropdown with Format Toggle Button -->
               <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shrink-0">
                 <button @click="setNamingFormat('dot')"
@@ -120,7 +133,6 @@
                   ECS Format
                 </button>
               </div>
-
               <button @click="autoGenerate()" class="inline-flex items-center gap-1.5 text-[11px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-1 rounded-md transition font-medium">
                 <span>Auto-Generate</span>
                 <span class="text-[9px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1 py-0.5 rounded leading-none">
@@ -817,6 +829,8 @@
           }
         },
 
+        strictMode: localStorage.getItem('grok_strict_mode') === 'true',
+
         saveState() {
           localStorage.setItem('grok_pattern', this.pattern);
           localStorage.setItem('grok_custom', this.customPatterns);
@@ -825,6 +839,7 @@
           localStorage.setItem('grok_sort_mode', this.sortMode);
           localStorage.setItem('grok_view_mode', this.viewMode);
           localStorage.setItem('grok_unmatched_only', String(this.showUnmatchedOnly));
+          localStorage.setItem('grok_strict_mode', String(this.strictMode));
         },
 
         onLogInput() {
@@ -855,7 +870,8 @@
                 pattern: this.pattern,
                 custom_patterns: this.customPatterns,
                 log_text: this.logText,
-                naming_format: this.namingFormat
+                naming_format: this.namingFormat,
+                strict_mode: this.strictMode
               })
             });
             const data = await res.json();

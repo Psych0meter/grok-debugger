@@ -83,7 +83,7 @@ class GrokDebuggerEngine:
             curr[parts[-1]] = value
         return result
 
-    def find_partial_match(self, pattern_str: str, custom_patterns: Dict[str, str], line: str) -> Dict[str, Any]:
+    def find_partial_match(self, pattern_str: str, custom_patterns: Dict[str, str], line: str, strict_mode: bool = False) -> Dict[str, Any]:
         """Progressively tests pattern tokens to find the longest matching prefix when a full match fails."""
         tokens = re.split(r'(%\{[^{}]+\}|\(\?<[^>]+>.*?\))', pattern_str)
         tokens = [t for t in tokens if t]
@@ -97,7 +97,7 @@ class GrokDebuggerEngine:
             try:
                 sanitized_pattern, sanitized_custom, field_map = self.sanitize_field_names(sub_pattern, custom_patterns)
                 sub_grok = Grok(sanitized_pattern, custom_patterns=sanitized_custom)
-                match = sub_grok.regex_obj.match(line)
+                match = sub_grok.regex_obj.fullmatch(line) if strict_mode else sub_grok.regex_obj.search(line)
                 
                 if match:
                     matched_len = match.end()
@@ -118,7 +118,7 @@ class GrokDebuggerEngine:
             "unmatched_remainder": longest_unmatched_remainder
         }
 
-    def execute_match(self, pattern_str: str, custom_patterns_raw: str, text: str) -> List[Dict[str, Any]]:
+    def execute_match(self, pattern_str: str, custom_patterns_raw: str, text: str, strict_mode: bool = False) -> List[Dict[str, Any]]:
         if not pattern_str or not text:
             return []
 
@@ -136,7 +136,9 @@ class GrokDebuggerEngine:
             if not line.strip():
                 continue
 
-            match = compiled_regex.match(line)
+            # Switch between Strict Full Match (^...$) and Flexible Substring Search
+            match = compiled_regex.fullmatch(line) if strict_mode else compiled_regex.search(line)
+
             if match:
                 raw_dict = match.groupdict()
                 matches_dict = {}
@@ -175,7 +177,6 @@ class GrokDebuggerEngine:
                 if curr < len(line):
                     segments.append({"text": line[curr:], "field": None})
 
-                # Construct ordered flat dictionary using log token appearance order
                 ordered_flat_dict = {}
                 for item in spans_list:
                     f_key = item["field"]
@@ -194,7 +195,7 @@ class GrokDebuggerEngine:
                     "json_data": json_nested
                 })
             else:
-                partial_info = self.find_partial_match(pattern_str, custom_patterns, line)
+                partial_info = self.find_partial_match(pattern_str, custom_patterns, line, strict_mode=strict_mode)
                 results.append({
                     "line_number": line_idx + 1,
                     "matched": False,
@@ -232,6 +233,12 @@ class GrokDebuggerEngine:
             if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', cleaned) or (':' in cleaned and re.match(r'^[0-9a-fA-F:]+$', cleaned)):
                 return "IP"
 
+            if '/' in cleaned and re.match(r'^(?:/[a-zA-Z0-9_.\-~+]+)+/?$', cleaned):
+                return "PATH"
+
+            if re.match(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}', cleaned):
+                return "TIMESTAMP_ISO8601"
+
             if cleaned.isdigit():
                 return "INT"
 
@@ -241,11 +248,16 @@ class GrokDebuggerEngine:
             return "NOTSPACE"
 
         def tokenize_line(line: str) -> List[Tuple[str, bool]]:
-            """
-            Splits line into structural tokens and variable candidates.
-            Preserves numbers, floats, IPs, key=value prefixes, and structural punctuation.
-            """
-            pattern = r'([a-zA-Z0-9_\-]+=)|([0-9a-fA-F:]+:[0-9a-fA-F:]+)|(\d+\.\d+)|\d+|([a-zA-Z0-9_\-]+)|([^\w\s])|(\s+)'
+            pattern = (
+                r'([a-zA-Z0-9_\-]+=)|'                # Key=Value prefixes
+                r'(?:/[a-zA-Z0-9_.\-~+]+)+/?|'        # Unix File Paths
+                r'(?:\d{1,3}\.){3}\d{1,3}|'           # IPv4 Addresses
+                r'([0-9a-fA-F:]+:[0-9a-fA-F:]+)|'     # IPv6 / MAC
+                r'(\d+\.\d+)|\d+|'                    # Numbers / Ints
+                r'([a-zA-Z0-9_\-]+)|'                 # Words
+                r'([^\w\s])|'                         # Punctuation
+                r'(\s+)'                              # Whitespace
+            )
             tokens = []
             for match in re.finditer(pattern, line):
                 val = match.group(0)
@@ -257,8 +269,13 @@ class GrokDebuggerEngine:
         tokenized_samples = [tokenize_line(line) for line in sample_lines]
 
         base_tokens = tokenized_samples[0]
+        valid_samples = [s for s in tokenized_samples if len(s) == len(base_tokens)]
+
         field_counter = 0
         pattern_parts = []
+        next_field_name = None
+
+        SPECIFIC_TYPES = {"IP", "PATH", "INT", "NUMBER", "TIMESTAMP_ISO8601"}
 
         for idx, (base_val, is_cand) in enumerate(base_tokens):
             if not is_cand:
@@ -266,23 +283,24 @@ class GrokDebuggerEngine:
                 continue
 
             values_at_pos = []
-            for sample in tokenized_samples:
-                if idx < len(sample):
-                    values_at_pos.append(sample[idx][0])
+            for sample in valid_samples:
+                values_at_pos.append(sample[idx][0])
 
             kv_match = re.match(r'^([a-zA-Z0-9_\-]+)=', base_val)
-            is_variable = len(set(values_at_pos)) > 1
-
             if kv_match:
-                key_name = kv_match.group(1)
+                next_field_name = kv_match.group(1)
+                pattern_parts.append(escape_literal(base_val))
+                continue
+
+            is_variable = len(set(values_at_pos)) > 1
+            grok_type = detect_grok_type(base_val)
+
+            if grok_type in SPECIFIC_TYPES or is_variable:
                 field_counter += 1
-                field_ref = format_field(key_name, field_counter)
-                pattern_parts.append(f"{escape_literal(key_name)}=")
-            elif is_variable:
-                field_counter += 1
-                field_ref = format_field("", field_counter)
-                grok_type = detect_grok_type(base_val)
+                suggested_name = next_field_name if next_field_name else ""
+                field_ref = format_field(suggested_name, field_counter)
                 pattern_parts.append(f"%{{{grok_type}:{field_ref}}}")
+                next_field_name = None
             else:
                 pattern_parts.append(escape_literal(base_val))
 
