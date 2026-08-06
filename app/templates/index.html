@@ -854,7 +854,7 @@
         },
 
         checkSyntaxNotice() {
-          const match = this.pattern.match(/\(\?(?:<|P<)([^>]+)>(.*?)\)/);
+          const match = this.pattern.match(/\(\?(?:P)?<([^>]+)>([^)]*)\)/);
           if (match) {
             const rawGroup = match[0];
             const fieldName = match[1];
