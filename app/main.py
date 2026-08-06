@@ -17,8 +17,6 @@ app = FastAPI(
     version=settings.version
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 # Initialize the Grok engine and templates
 engine = GrokDebuggerEngine()
 templates = Jinja2Templates(directory="app/templates")
