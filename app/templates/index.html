@@ -933,7 +933,7 @@
                 this.syncResultsHeight();
               });
             } else {
-              this.errorMessage = data.error || 'Unknown matching error.';
+              this.errorMessage = data.detail || 'Unknown matching error.';
               this.results = [];
             }
           } catch (err) {
