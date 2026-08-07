@@ -1,7 +1,10 @@
+import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Standard library TOML parser for Python 3.11+
 if sys.version_info >= (3, 11):
@@ -37,12 +40,12 @@ class AppSettings:
                 with open(pyproject_path, "rb") as f:
                     data = tomllib.load(f)
                     return data.get("project", {}).get("version", "1.0.0")
-            except Exception:
-                pass
+            except (OSError, ValueError) as e:
+                logger.warning("Could not read version from pyproject.toml: %s", e)
 
         return "1.0.0"
 
-    def get_public_config(self) -> Dict[str, Any]:
+    def get_public_config(self) -> dict[str, Any]:
         """Returns parameters exposed to the frontend via API."""
         return {
             "version": f"v{self.version}",
