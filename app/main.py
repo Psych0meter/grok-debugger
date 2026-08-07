@@ -1,8 +1,8 @@
-from typing import Optional
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
 import logging
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app.config import settings
@@ -17,9 +17,10 @@ app = FastAPI(
     version=settings.version
 )
 
-# Initialize the Grok engine and templates
+# Initialize the Grok engine, templates, and static assets (CSS/JS)
 engine = GrokDebuggerEngine()
 templates = Jinja2Templates(directory="app/templates")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 class DebugRequest(BaseModel):
     """
@@ -33,10 +34,10 @@ class DebugRequest(BaseModel):
         strict_mode: If True, require a full line match (^...$). Otherwise, allow substring matches.
     """
     pattern: str
-    custom_patterns: Optional[str] = ""
+    custom_patterns: str | None = ""
     log_text: str
-    naming_format: Optional[str] = "dot"
-    strict_mode: Optional[bool] = False
+    naming_format: str | None = "dot"
+    strict_mode: bool | None = False
 
 @app.get("/api/config")
 async def get_config() -> dict:
@@ -91,8 +92,8 @@ async def match_grok(data: DebugRequest):
     except ValueError as e:
         logger.warning(f"Validation error in match_grok: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Unexpected error in match_grok: {e}", exc_info=True)
+    except Exception:
+        logger.exception("Unexpected error in match_grok")
         raise HTTPException(
             status_code=500,
             detail="An internal error occurred. Please try again."
@@ -119,7 +120,7 @@ async def generate_pattern(data: DebugRequest):
         )
         return {"success": True, "generated_pattern": guessed_pattern}
     except Exception as e:
-        logger.error(f"Error in generate_pattern: {e}", exc_info=True)
+        logger.exception("Error in generate_pattern")
         return {"success": False, "error": str(e)}
 
 @app.get("/api/health")

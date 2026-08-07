@@ -1,6 +1,8 @@
 import re
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Any
+
 from pygrok import Grok
+
 
 class GrokDebuggerEngine:
     """
@@ -21,7 +23,7 @@ class GrokDebuggerEngine:
         self.grok_field_re = re.compile(r'%\{([A-Z0-9_]+):([^}:]+)(:[a-zA-Z0-9_]+)?\}')
 
         # Regex for named regex groups (e.g., `(?P<client.ip>...)`)
-        self.regex_group_re = re.compile(r'\(\?\?(?:<|P<)([^>]+)>')
+        self.regex_group_re = re.compile(r'\(\?(?:<|P<)([^>]+)>')
 
         # Regex for validating Logstash field names in dot notation (e.g., `client.ip`)
         self.valid_dot_field = re.compile(r'^[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)*$')
@@ -36,7 +38,7 @@ class GrokDebuggerEngine:
         self.timestamp_iso8601_re = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}')
         self.number_re = re.compile(r'^\d+\.?\d*$')
 
-    def parse_custom_patterns(self, custom_patterns_raw: str) -> Dict[str, str]:
+    def parse_custom_patterns(self, custom_patterns_raw: str) -> dict[str, str]:
         """
         Parse custom Grok patterns from a raw string.
 
@@ -77,8 +79,8 @@ class GrokDebuggerEngine:
     def _sanitize_string(
         self,
         text: str,
-        mapping: Dict[str, str],
-        counter: List[int]
+        mapping: dict[str, str],
+        counter: list[int]
     ) -> str:
         """
         Sanitize field names in Grok and regex patterns by replacing them with safe keys.
@@ -119,8 +121,8 @@ class GrokDebuggerEngine:
     def sanitize_field_names(
         self,
         pattern_str: str,
-        custom_patterns: Optional[Dict[str, str]] = None
-    ) -> Tuple[str, Dict[str, str], Dict[str, str]]:
+        custom_patterns: dict[str, str] | None = None
+    ) -> tuple[str, dict[str, str], dict[str, str]]:
         """
         Sanitize field names in Grok patterns and custom patterns.
 
@@ -137,7 +139,7 @@ class GrokDebuggerEngine:
         if custom_patterns is None:
             custom_patterns = {}
 
-        mapping: Dict[str, str] = {}
+        mapping: dict[str, str] = {}
         counter = [0]
 
         sanitized_pattern = self._sanitize_string(pattern_str, mapping, counter)
@@ -148,7 +150,7 @@ class GrokDebuggerEngine:
 
         return sanitized_pattern, sanitized_custom, mapping
 
-    def unflatten_dict(self, flat_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def unflatten_dict(self, flat_dict: dict[str, Any]) -> dict[str, Any]:
         """
         Convert a flat dictionary with dot/bracket notation keys into a nested dictionary.
 
@@ -178,10 +180,10 @@ class GrokDebuggerEngine:
     def find_partial_match(
         self,
         pattern_str: str,
-        custom_patterns: Dict[str, str],
+        custom_patterns: dict[str, str],
         line: str,
         strict_mode: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Progressively test pattern tokens to find the longest matching prefix when a full match fails.
 
@@ -223,7 +225,9 @@ class GrokDebuggerEngine:
                     longest_unmatched_remainder = line[matched_len:]
                 else:
                     break
-            except Exception:
+            except Exception:  # noqa: BLE001 - pygrok/re can raise several undocumented
+                # exception types for a malformed sub-pattern; any of them just means
+                # "this prefix doesn't compile", so we stop widening the prefix here.
                 break
 
         return {
@@ -236,9 +240,9 @@ class GrokDebuggerEngine:
         self,
         line: str,
         match: re.Match,
-        field_map: Dict[str, str],
+        field_map: dict[str, str],
         strict_mode: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Build the result for a matched line, including extracted fields and spans.
 
@@ -279,7 +283,7 @@ class GrokDebuggerEngine:
         custom_patterns_raw: str,
         text: str,
         strict_mode: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Execute Grok pattern matching against the provided text.
 
@@ -313,7 +317,9 @@ class GrokDebuggerEngine:
             grok = Grok(sanitized_pattern, custom_patterns=sanitized_custom)
             compiled_regex = grok.regex_obj
         except Exception as e:
-            raise ValueError(f"Pattern Compilation Error: {str(e)}")
+            # Normalizes any pygrok/re compilation failure (KeyError, re.error, etc.)
+            # into a single user-facing ValueError.
+            raise ValueError(f"Pattern Compilation Error: {e!s}") from e
 
         results = []
         for line_idx, line in enumerate(text.splitlines()):
@@ -438,7 +444,7 @@ class GrokDebuggerEngine:
             """Escape special regex characters in a literal string."""
             return re.sub(r'([\\^$\.|?*+()\[\]{}])', r'\\\1', s)
 
-        def tokenize_line(line: str) -> List[Tuple[str, bool]]:
+        def tokenize_line(line: str) -> list[tuple[str, bool]]:
             """
             Tokenize a log line into candidate values for pattern generation.
 
