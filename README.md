@@ -9,7 +9,7 @@ A fast, interactive Grok and Regexp debugger and pattern generator built with **
 - **Real-Time Log Parsing:** Instant Grok pattern and standard regular expression evaluations without page reloads.
 - **ECS Bracket & Dot Notation Support:** Native parsing and validation for nested target variables such as `%{WORD:[observer][ingress][vlan][id]}` or `%{IP:client.ip}`.
 - **Partial Match Diagnostics:** When a pattern fails to match a log line, the engine highlights the exact token where parsing broke down.
-- **Pattern Auto-Generator (Beta):** Generates starter Grok patterns automatically from raw sample logs.
+- **Pattern Auto-Generator (Beta):** Generates starter Grok patterns from raw sample logs. Uses sequence alignment (not just positional matching) across samples, so it correctly handles optional or variable-length segments — e.g. a log line missing a tag another sample has — by wrapping them in `(?:...)?` instead of failing to match.
 - **Custom Pattern Definitions:** Inline custom pattern definitions with line-number gutter synchronization.
 - **Color-Coded Token Highlighting:** Automatic visual mapping connecting extracted fields to corresponding segments in sample logs.
 - **LocalStorage State Persistence:** Automatically retains log inputs, custom definitions, and patterns across browser refreshes.
@@ -30,11 +30,15 @@ This project was built to modernize and combine capabilities of Grok debugging t
 ```
 .
 ├── app/
-│   ├── main.py              # FastAPI application & API routes
-│   ├── grok_engine.py       # Core Grok evaluation, sanitization & auto-generation engine
-│   └── templates/
-│       └── index.html       # Single-page UI built with Alpine.js & Tailwind CSS
-├── requirements.txt         # Python dependencies
+│   ├── main.py                # FastAPI application & API routes
+│   ├── config.py              # App settings & version/feature metadata
+│   ├── grok_engine.py         # Core Grok evaluation, sanitization & auto-generation engine
+│   ├── templates/
+│   │   └── index.html         # Single-page UI shell (Alpine.js & Tailwind CSS via CDN)
+│   └── static/
+│       ├── css/style.css      # UI styling
+│       └── js/app.js          # Alpine.js application logic
+├── requirements.txt           # Python dependencies
 └── README.md
 ```
 
