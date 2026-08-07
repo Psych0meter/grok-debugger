@@ -1,3 +1,4 @@
+import difflib
 import re
 from typing import Any
 
@@ -400,7 +401,14 @@ class GrokDebuggerEngine:
 
         cleaned = val.strip('\'"<>()[]{}')
 
-        if self.ipv4_re.match(cleaned) or (':' in cleaned and self.ipv6_re.match(cleaned)):
+        # A bare "[0-9a-fA-F:]+" match also accepts plain HH:MM:SS times (e.g.
+        # "10:23:01" is all digits and colons), so require a real IPv6 signal
+        # too: zero-compression ("::"), a hex letter, or more groups than a
+        # timestamp would ever have (3+ colons).
+        looks_like_ipv6 = self.ipv6_re.match(cleaned) and (
+            '::' in cleaned or re.search(r'[a-fA-F]', cleaned) or cleaned.count(':') >= 3
+        )
+        if self.ipv4_re.match(cleaned) or (':' in cleaned and looks_like_ipv6):
             return "IP"
 
         if '/' in cleaned and self.path_re.match(cleaned):
@@ -472,42 +480,140 @@ class GrokDebuggerEngine:
         sample_lines = lines[:min(5, len(lines))]
         tokenized_samples = [tokenize_line(line) for line in sample_lines]
 
-        base_tokens = tokenized_samples[0]
-        valid_samples = [s for s in tokenized_samples if len(s) == len(base_tokens)]
-
-        field_counter = 0
-        pattern_parts = []
-        next_field_name = None
-
         SPECIFIC_TYPES = {"IP", "PATH", "INT", "NUMBER", "TIMESTAMP_ISO8601"}
 
-        for idx, (base_val, is_cand) in enumerate(base_tokens):
-            if not is_cand:
-                pattern_parts.append(escape_literal(base_val))
-                continue
+        def is_specific(token_text: str) -> bool:
+            return self.detect_grok_type(token_text) in SPECIFIC_TYPES
 
-            values_at_pos = []
-            for sample in valid_samples:
-                values_at_pos.append(sample[idx][0])
+        # Each merged template segment: representative text, whether it must
+        # become a %{...} field, whether it still corresponds to exactly one raw
+        # token (vs. a multi-token span collapsed during alignment), and whether
+        # it was missing from at least one sample line seen so far.
+        class _Node:
+            __slots__ = ("is_field", "optional", "single_token", "text")
 
-            kv_match = re.match(r'^([a-zA-Z0-9_\-]+)=', base_val)
-            if kv_match:
-                next_field_name = kv_match.group(1)
-                pattern_parts.append(escape_literal(base_val))
-                continue
+            def __init__(self, text, is_field, single_token=True, optional=False):
+                self.text = text
+                self.is_field = is_field
+                self.single_token = single_token
+                self.optional = optional
 
-            is_variable = len(set(values_at_pos)) > 1
-            grok_type = self.detect_grok_type(base_val)
+        def align_key(text: str, specific: bool, uid) -> Any:
+            # Stable literal text (punctuation, whitespace, plain keywords) anchors
+            # the alignment between samples. Anything that already looks like an
+            # IP/PATH/number/etc. never anchors, even if it happens to repeat
+            # verbatim - it's still a variable slot, so it gets a unique key that
+            # can never compare equal to anything.
+            return uid if specific else text
 
-            if grok_type in SPECIFIC_TYPES or is_variable:
+        # Seed the merged template from the first sample line.
+        template: list[_Node] = [
+            _Node(tok, is_specific(tok)) for tok, _cand in tokenized_samples[0]
+        ]
+
+        # Progressively fold every other sample line into the template with a
+        # sequence diff rather than positional indexing, so a line with an
+        # extra or missing segment - not just a different value at a fixed
+        # slot - still aligns correctly against the rest.
+        for tokens in tokenized_samples[1:]:
+            new_texts = [tok for tok, _cand in tokens]
+
+            tmpl_keys = [align_key(n.text, (not n.single_token) or n.is_field, id(n)) for n in template]
+            new_keys = [align_key(txt, is_specific(txt), object()) for txt in new_texts]
+
+            matcher = difflib.SequenceMatcher(None, tmpl_keys, new_keys, autojunk=False)
+            merged: list[_Node] = []
+
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag == "equal":
+                    merged.extend(template[i1:i2])
+                elif tag == "replace":
+                    # Differing content at this position: always a field, even if
+                    # it's not a "specific" type - the difference itself proves
+                    # it's variable.
+                    merged.append(_Node(
+                        text=new_texts[j2 - 1],
+                        is_field=True,
+                        single_token=(i2 - i1 == 1 and j2 - j1 == 1),
+                    ))
+                elif tag == "delete":
+                    # Present in earlier samples, absent from this one - keep it,
+                    # but mark it optional so it's wrapped in (?:...)? below. A
+                    # multi-token span collapses to one node, but only becomes a
+                    # field if it actually contains variable content - a purely
+                    # literal optional chunk (e.g. "[imp] ") stays literal.
+                    seg = template[i1:i2]
+                    if len(seg) == 1:
+                        node = seg[0]
+                    else:
+                        node = _Node(
+                            text="".join(n.text for n in seg),
+                            is_field=any(n.is_field or is_specific(n.text) for n in seg),
+                            single_token=False,
+                        )
+                    node.optional = True
+                    merged.append(node)
+                elif tag == "insert":
+                    # This sample introduces material earlier ones didn't have.
+                    seg_texts = new_texts[j1:j2]
+                    merged.append(_Node(
+                        text="".join(seg_texts),
+                        is_field=any(is_specific(t) for t in seg_texts),
+                        single_token=(j2 - j1 == 1),
+                        optional=True,
+                    ))
+
+            template = merged
+
+        # --- Render the merged template into a Grok pattern string ---
+        field_counter = 0
+        next_field_name = None
+        raw_parts: list[tuple[str, bool]] = []  # (fragment, optional)
+
+        for idx, node in enumerate(template):
+            text = node.text
+            treat_as_field = node.is_field or (node.single_token and is_specific(text))
+
+            if node.single_token and not treat_as_field:
+                kv_match = re.match(r'^([a-zA-Z0-9_\-]+)=', text)
+                if kv_match:
+                    next_field_name = kv_match.group(1)
+                    raw_parts.append((escape_literal(text), node.optional))
+                    continue
+
+            if treat_as_field:
                 field_counter += 1
                 suggested_name = next_field_name if next_field_name else ""
                 field_ref = format_field(suggested_name, field_counter)
-                pattern_parts.append(f"%{{{grok_type}:{field_ref}}}")
+                if node.single_token:
+                    grok_type = self.detect_grok_type(text)
+                else:
+                    # Non-greedy DATA for an interior variable-width gap so it
+                    # doesn't swallow past the next literal anchor; GREEDYDATA
+                    # only makes sense as a trailing catch-all.
+                    grok_type = "GREEDYDATA" if idx == len(template) - 1 else "DATA"
+                raw_parts.append((f"%{{{grok_type}:{field_ref}}}", node.optional))
                 next_field_name = None
             else:
-                pattern_parts.append(escape_literal(base_val))
+                raw_parts.append((escape_literal(text), node.optional))
 
-        pattern = "".join(pattern_parts)
-        pattern = re.sub(r' +', ' ', pattern)
-        return pattern
+        # Merge contiguous optional segments into a single (?:...)? group
+        # instead of wrapping each token individually - e.g. an optional
+        # leading tag like "[imp] " becomes one group, not four.
+        pattern_parts = []
+        i = 0
+        while i < len(raw_parts):
+            frag, optional = raw_parts[i]
+            if not optional:
+                pattern_parts.append(frag)
+                i += 1
+                continue
+            chunk = []
+            j = i
+            while j < len(raw_parts) and raw_parts[j][1]:
+                chunk.append(raw_parts[j][0])
+                j += 1
+            pattern_parts.append(f"(?:{''.join(chunk)})?")
+            i = j
+
+        return "".join(pattern_parts)
