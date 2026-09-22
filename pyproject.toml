@@ -11,3 +11,13 @@ dependencies = [
     "pygrok>=1.0.0",
     "pydantic>=2.0.0"
 ]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# E/F/W: pyflakes + pycodestyle (default). B: bugbear. C4: comprehensions.
+# SIM: simplify. UP: pyupgrade. RUF: ruff-native checks. PTH: prefer pathlib.
+# N: naming. ARG: unused arguments. BLE: no bare `except Exception` without
+# a justifying comment/noqa (see grok_engine.py's find_partial_match).
+select = ["E", "F", "W", "B", "C4", "SIM", "UP", "RUF", "PTH", "N", "ARG", "BLE"]

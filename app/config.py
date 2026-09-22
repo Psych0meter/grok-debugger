@@ -37,7 +37,7 @@ class AppSettings:
         pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
         if pyproject_path.exists() and tomllib:
             try:
-                with open(pyproject_path, "rb") as f:
+                with pyproject_path.open("rb") as f:
                     data = tomllib.load(f)
                     return data.get("project", {}).get("version", "1.0.0")
             except (OSError, ValueError) as e:
