@@ -1,10 +1,5 @@
 # Changelog
 
-All notable changes to this project are documented here. Format loosely
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries for
-1.1.0–1.1.4 are reconstructed from git history rather than written at the
-time of each release, so they're summaries rather than exhaustive.
-
 ## [1.1.5] - 2026-09-22
 
 ### Added
