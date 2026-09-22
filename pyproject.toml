@@ -1,6 +1,6 @@
 [project]
 name = "grok-regex-debugger"
-version = "1.1.4"
+version = "1.1.5"
 description = "ECS-compliant Grok & Regexp Debugger"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,6 +12,14 @@ dependencies = [
     "pydantic>=2.0.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6.0",
+    "bandit>=1.7.0",
+    "pytest>=8.0.0",
+    "httpx>=0.27.0"
+]
+
 [tool.ruff]
 line-length = 100
 
@@ -21,3 +29,8 @@ line-length = 100
 # N: naming. ARG: unused arguments. BLE: no bare `except Exception` without
 # a justifying comment/noqa (see grok_engine.py's find_partial_match).
 select = ["E", "F", "W", "B", "C4", "SIM", "UP", "RUF", "PTH", "N", "ARG", "BLE"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
