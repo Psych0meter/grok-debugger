@@ -30,8 +30,10 @@ class DebugRequest(BaseModel):
         pattern: The Grok pattern to test.
         custom_patterns: Optional custom Grok patterns (one per line).
         log_text: The log text to match against the pattern.
-        naming_format: Field naming format ("dot" for `client.ip` or "bracket" for `[client][ip]`).
-        strict_mode: If True, require a full line match (^...$). Otherwise, allow substring matches.
+        naming_format: Field naming format ("dot" for `client.ip` or
+            "bracket" for `[client][ip]`).
+        strict_mode: If True, require a full line match (^...$).
+            Otherwise, allow substring matches.
     """
     pattern: str
     custom_patterns: str | None = ""
@@ -91,13 +93,13 @@ async def match_grok(data: DebugRequest):
         return {"success": True, "results": matches}
     except ValueError as e:
         logger.warning(f"Validation error in match_grok: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
         logger.exception("Unexpected error in match_grok")
         raise HTTPException(
             status_code=500,
             detail="An internal error occurred. Please try again."
-        )
+        ) from e
 
 @app.post("/api/generate")
 async def generate_pattern(data: DebugRequest):
