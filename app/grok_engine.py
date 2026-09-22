@@ -48,7 +48,8 @@ class GrokDebuggerEngine:
                                 Lines starting with `#` are treated as comments.
 
         Returns:
-            Dictionary of custom patterns, where keys are pattern names and values are regex patterns.
+            Dictionary of custom patterns, where keys are pattern names and
+            values are regex patterns.
         """
         patterns = {}
         for line in custom_patterns_raw.splitlines():
@@ -70,7 +71,11 @@ class GrokDebuggerEngine:
         Raises:
             ValueError: If the field name is invalid (not in dot or bracket notation).
         """
-        if not (self.valid_dot_field.match(field_name) or self.valid_bracket_field.match(field_name)):
+        is_valid = (
+            self.valid_dot_field.match(field_name)
+            or self.valid_bracket_field.match(field_name)
+        )
+        if not is_valid:
             raise ValueError(
                 f"Invalid Logstash field name '{field_name}'. "
                 f"Logstash requires either dot-notation (e.g., 'client.ip') "
@@ -178,6 +183,67 @@ class GrokDebuggerEngine:
             curr[parts[-1]] = value
         return result
 
+    def _tokenize_pattern(self, pattern_str: str) -> list[str]:
+        """
+        Split a Grok/regex pattern into whole tokens for progressive prefix testing.
+
+        Each `%{...}` Grok field and each `(?P<name>...)` / `(?<name>...)`
+        named regex group is kept as a single, whole token - with proper
+        paren balancing, so a group whose body itself contains nested
+        parens (e.g. `(?P<mac>(?:[0-9A-F]{2}:){5}[0-9A-F]{2})`) is not
+        truncated at the first inner `)`. Everything else is literal text,
+        coalesced into runs between the special tokens.
+
+        Args:
+            pattern_str: The Grok or regex pattern to tokenize.
+
+        Returns:
+            List of whole tokens, in order, that join back into pattern_str.
+        """
+        tokens: list[str] = []
+        literal_buf: list[str] = []
+        i = 0
+        n = len(pattern_str)
+
+        def flush_literal() -> None:
+            if literal_buf:
+                tokens.append("".join(literal_buf))
+                literal_buf.clear()
+
+        while i < n:
+            if pattern_str[i:i + 2] == '%{':
+                end = pattern_str.find('}', i)
+                if end == -1:
+                    literal_buf.append(pattern_str[i:])
+                    break
+                flush_literal()
+                tokens.append(pattern_str[i:end + 1])
+                i = end + 1
+                continue
+
+            if pattern_str[i] == '(' and re.match(r'\(\?P?<[^>]+>', pattern_str[i:]):
+                depth = 0
+                j = i
+                while j < n:
+                    if pattern_str[j] == '(':
+                        depth += 1
+                    elif pattern_str[j] == ')':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    j += 1
+                if depth == 0:
+                    flush_literal()
+                    tokens.append(pattern_str[i:j + 1])
+                    i = j + 1
+                    continue
+
+            literal_buf.append(pattern_str[i])
+            i += 1
+
+        flush_literal()
+        return tokens
+
     def find_partial_match(
         self,
         pattern_str: str,
@@ -186,13 +252,16 @@ class GrokDebuggerEngine:
         strict_mode: bool = False
     ) -> dict[str, Any]:
         """
-        Progressively test pattern tokens to find the longest matching prefix when a full match fails.
+        Progressively test pattern tokens to find the longest matching prefix.
+
+        Used when a full match fails, to locate where matching broke down.
 
         Args:
             pattern_str: The Grok pattern string.
             custom_patterns: Dictionary of custom patterns.
             line: The log line to match.
-            strict_mode: If True, require a full line match (^...$). Otherwise, allow substring matches.
+            strict_mode: If True, require a full line match (^...$).
+                Otherwise, allow substring matches.
 
         Returns:
             Dictionary containing:
@@ -200,8 +269,7 @@ class GrokDebuggerEngine:
             - matched_fields: Fields captured before the mismatch.
             - unmatched_remainder: The part of the line that failed to match.
         """
-        tokens = re.split(r'(%\{[^{}]+\}|\(?<[^>]+>.*?\))', pattern_str)
-        tokens = [t for t in tokens if t]
+        tokens = self._tokenize_pattern(pattern_str)
 
         longest_matched_prefix = ""
         longest_matched_dict = {}
@@ -214,12 +282,17 @@ class GrokDebuggerEngine:
                     sub_pattern, custom_patterns
                 )
                 sub_grok = Grok(sanitized_pattern, custom_patterns=sanitized_custom)
-                match = sub_grok.regex_obj.fullmatch(line) if strict_mode else sub_grok.regex_obj.search(line)
+                if strict_mode:
+                    match = sub_grok.regex_obj.fullmatch(line)
+                else:
+                    match = sub_grok.regex_obj.search(line)
 
                 if match:
                     matched_len = match.end()
                     raw_dict = match.groupdict()
-                    cleaned_dict = {field_map.get(k, k): v for k, v in raw_dict.items() if v is not None}
+                    cleaned_dict = {
+                        field_map.get(k, k): v for k, v in raw_dict.items() if v is not None
+                    }
 
                     longest_matched_prefix = sub_pattern
                     longest_matched_dict = cleaned_dict
@@ -239,19 +312,15 @@ class GrokDebuggerEngine:
 
     def _build_match_result(
         self,
-        line: str,
         match: re.Match,
-        field_map: dict[str, str],
-        strict_mode: bool
+        field_map: dict[str, str]
     ) -> dict[str, Any]:
         """
         Build the result for a matched line, including extracted fields and spans.
 
         Args:
-            line: The log line that matched.
             match: The regex match object.
             field_map: Mapping of safe keys to original field names.
-            strict_mode: Whether strict mode was used.
 
         Returns:
             Dictionary containing:
@@ -292,7 +361,8 @@ class GrokDebuggerEngine:
             pattern_str: The Grok pattern string.
             custom_patterns_raw: Raw string of custom patterns.
             text: The log text to match against.
-            strict_mode: If True, require a full line match (^...$). Otherwise, allow substring matches.
+            strict_mode: If True, require a full line match (^...$).
+                Otherwise, allow substring matches.
 
         Returns:
             List of dictionaries, each representing the match result for a line.
@@ -330,7 +400,7 @@ class GrokDebuggerEngine:
             match = compiled_regex.fullmatch(line) if strict_mode else compiled_regex.search(line)
 
             if match:
-                match_result = self._build_match_result(line, match, field_map, strict_mode)
+                match_result = self._build_match_result(match, field_map)
                 matches_dict = match_result["matches_dict"]
                 spans_list = match_result["spans_list"]
 
@@ -431,7 +501,8 @@ class GrokDebuggerEngine:
 
         Args:
             text: Sample log text (one or more lines).
-            format_mode: Field naming format ("dot" for `client.ip` or "bracket" for `[client][ip]`).
+            format_mode: Field naming format ("dot" for `client.ip` or
+                "bracket" for `[client][ip]`).
 
         Returns:
             Generated Grok pattern.
@@ -480,10 +551,10 @@ class GrokDebuggerEngine:
         sample_lines = lines[:min(5, len(lines))]
         tokenized_samples = [tokenize_line(line) for line in sample_lines]
 
-        SPECIFIC_TYPES = {"IP", "PATH", "INT", "NUMBER", "TIMESTAMP_ISO8601"}
+        specific_types = {"IP", "PATH", "INT", "NUMBER", "TIMESTAMP_ISO8601"}
 
         def is_specific(token_text: str) -> bool:
-            return self.detect_grok_type(token_text) in SPECIFIC_TYPES
+            return self.detect_grok_type(token_text) in specific_types
 
         # Each merged template segment: representative text, whether it must
         # become a %{...} field, whether it still corresponds to exactly one raw
@@ -518,7 +589,10 @@ class GrokDebuggerEngine:
         for tokens in tokenized_samples[1:]:
             new_texts = [tok for tok, _cand in tokens]
 
-            tmpl_keys = [align_key(n.text, (not n.single_token) or n.is_field, id(n)) for n in template]
+            tmpl_keys = [
+                align_key(n.text, (not n.single_token) or n.is_field, id(n))
+                for n in template
+            ]
             new_keys = [align_key(txt, is_specific(txt), object()) for txt in new_texts]
 
             matcher = difflib.SequenceMatcher(None, tmpl_keys, new_keys, autojunk=False)
