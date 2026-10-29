@@ -220,9 +220,15 @@ async def generate_pattern(data: DebugRequest):
             data.naming_format or "dot"
         )
         return {"success": True, "generated_pattern": guessed_pattern}
+    except ValueError as e:
+        logger.warning("generate_pattern request rejected: %s", e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.exception("Error in generate_pattern")
-        return {"success": False, "error": str(e)}
+        logger.exception("Unexpected error in generate_pattern")
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred. Please try again."
+        ) from e
 
 @app.get("/api/health")
 async def health_check() -> dict:
