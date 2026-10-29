@@ -446,12 +446,15 @@ function grokApp() {
           })
         });
         const data = await res.json();
-        if (data.success) {
-          this.pattern = data.generated_pattern || '';
-          this.onInputChange();
+        if (!res.ok || !data.success) {
+          this.errorMessage = data.detail || data.error || 'Pattern generation failed.';
+          return;
         }
+        this.pattern = data.generated_pattern || '';
+        this.errorMessage = '';
+        this.onInputChange();
       } catch (e) {
-        console.error(e);
+        this.errorMessage = 'Failed to communicate with server backend.';
       }
     }
   }
