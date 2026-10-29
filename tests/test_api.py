@@ -149,3 +149,30 @@ def test_match_times_out_when_the_engine_call_takes_too_long(monkeypatch):
     )
     assert res.status_code == 400
     assert "timed out" in res.json()["detail"].lower()
+
+
+def test_generate_reports_invalid_input_as_bad_request(monkeypatch):
+    def reject_generation(*_args, **_kwargs):
+        raise ValueError("sample could not be parsed")
+
+    monkeypatch.setattr(main_module.engine, "pregenerate_pattern", reject_generation)
+    res = client.post(
+        "/api/generate",
+        json={"pattern": "", "custom_patterns": "", "log_text": "sample"},
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "sample could not be parsed"
+
+
+def test_generate_hides_unexpected_internal_error(monkeypatch):
+    def fail_generation(*_args, **_kwargs):
+        raise RuntimeError("sensitive internal detail")
+
+    monkeypatch.setattr(main_module.engine, "pregenerate_pattern", fail_generation)
+    res = client.post(
+        "/api/generate",
+        json={"pattern": "", "custom_patterns": "", "log_text": "sample"},
+    )
+    assert res.status_code == 500
+    assert res.json()["detail"] == "An internal error occurred. Please try again."
+    assert "sensitive internal detail" not in res.text
