@@ -237,7 +237,11 @@ function grokApp() {
     },
 
     resetAll() {
-      localStorage.clear();
+      // Remove only this application's persisted state; preserve other apps' keys.
+      [
+        'grok_pattern', 'grok_custom', 'grok_log_text', 'grok_naming_format',
+        'grok_sort_mode', 'grok_view_mode', 'grok_unmatched_only', 'grok_strict_mode'
+      ].forEach((key) => localStorage.removeItem(key));
       this.pattern = DEFAULT_PATTERN;
       this.customPatterns = '';
       this.logText = DEFAULT_LOGS;
