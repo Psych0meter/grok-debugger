@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.7] - 2026-10-29
+
+- Standardize error handling for pattern generation and matching endpoints.
+- Return appropriate HTTP status codes for invalid requests and unexpected server errors.
+- Improve frontend error reporting when pattern generation fails.
+
+### Fixed
+
+- Restrict workspace reset operations to application-owned `grok_*` keys in `localStorage`, preserving unrelated browser data.
+- Add regression tests for pattern generation failures and API error responses.
+
+### Security
+
+- Avoid exposing internal exception details in API error responses.
+- Harden GROK pattern evaluation against resource exhaustion through bounded concurrency and enforceable execution timeouts.
+- Recommend request-body size limits and request-rate limiting to reduce the risk of resource exhaustion from untrusted inputs.
+- Pin frontend CDN dependency versions to improve dependency consistency and reduce exposure to unexpected upstream changes.
+
 ## [1.1.6] - 2026-10-29
 
 ### Fixed
