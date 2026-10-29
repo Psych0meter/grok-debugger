@@ -21,16 +21,16 @@ class GrokDebuggerEngine:
         - Type detection patterns (IPv4, IPv6, paths, timestamps, etc.)
         """
         # Regex for Grok field patterns (e.g., `%{IP:client.ip}`)
-        self.grok_field_re = re.compile(r'%\{([A-Z0-9_]+):([^}:]+)(:[a-zA-Z0-9_]+)?\}')
+        self.grok_field_re = re.compile(r'%\{([A-Z0-9_@]+):([^}:]+)(:[a-zA-Z0-9_]+)?\}')
 
         # Regex for named regex groups (e.g., `(?P<client.ip>...)`)
         self.regex_group_re = re.compile(r'\(\?(?:<|P<)([^>]+)>')
 
         # Regex for validating Logstash field names in dot notation (e.g., `client.ip`)
-        self.valid_dot_field = re.compile(r'^[a-zA-Z0-9_\-]+(\.[a-zA-Z0-9_\-]+)*$')
+        self.valid_dot_field = re.compile(r'^[a-zA-Z0-9_\-@]+(\.[a-zA-Z0-9_\-]+)*$')
 
         # Regex for validating Logstash field names in bracket notation (e.g., `[client][ip]`)
-        self.valid_bracket_field = re.compile(r'^(\[[a-zA-Z0-9_\-]+\])+$')
+        self.valid_bracket_field = re.compile(r'^(\[[a-zA-Z0-9_\-@]+\])+$')
 
         # Precompiled regex for type detection (used in `detect_grok_type`)
         self.ipv4_re = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
