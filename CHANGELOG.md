@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.6] - 2026-10-29
+
+### Fixed
+- Allow @ char in field names, like Logstash @metadata
+
 ## [1.1.5] - 2026-09-22
 
 ### Added
